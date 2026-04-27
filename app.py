@@ -39,6 +39,30 @@ class ConversionError(RuntimeError):
     pass
 
 
+def state_file_path() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "media-convert" / "state.json"
+
+
+def load_persisted_state() -> dict:
+    path = state_file_path()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_persisted_state(data: dict) -> None:
+    path = state_file_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2))
+    except OSError:
+        pass
+
+
 def ensure_dependencies() -> None:
     missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
     if missing:
@@ -662,6 +686,142 @@ def wrap_lines(lines: Sequence[str], width: int) -> List[str]:
     return wrapped
 
 
+@dataclass
+class Section:
+    key: str
+    title: str
+    field_keys: List[str]
+    expanded: bool = True
+
+
+SECTIONS: List[Section] = [
+    Section("source", "Source", ["input_path", "output_path"]),
+    Section("target", "Target", ["mode", "target_size_mb"]),
+    Section("video", "Video", ["width", "height", "fps", "video_bitrate_kbps", "crf", "preset"]),
+    Section("audio", "Audio", ["include_audio", "audio_bitrate_kbps"]),
+]
+
+FIELD_HINTS = {
+    "input_path": "Path to the source media file. Enter browses; e edits as text.",
+    "output_path": "Where to write the encoded result. Extension drives codec.",
+    "mode": "auto_size targets a file size; manual lets you pick CRF or bitrate.",
+    "target_size_mb": "Target output size in megabytes (auto_size mode only).",
+    "include_audio": "Keep the audio track in a video output.",
+    "audio_bitrate_kbps": "Audio bitrate in kbps. Defaults vary by codec.",
+    "width": "Output width in pixels. Height auto-derives if blank.",
+    "height": "Output height in pixels. Width auto-derives if blank.",
+    "fps": "Output frame rate. Blank keeps source fps.",
+    "video_bitrate_kbps": "Manual video bitrate in kbps. Mutually exclusive with CRF.",
+    "crf": "Manual quality target (lower = better, 18-28 typical).",
+    "preset": "libx264 speed/efficiency tradeoff.",
+}
+
+FIELD_HELP = {
+    "input_path": [
+        "Source media file.",
+        "Enter: open file browser.",
+        "e: type a path manually.",
+    ],
+    "output_path": [
+        "Output file. The extension picks the codec:",
+        ".mp4/.mkv/.mov → h264 video.",
+        ".mp3/.m4a/.opus → lossy audio.",
+        ".wav/.flac → lossless audio.",
+    ],
+    "mode": [
+        "auto_size: hits a target MB via two-pass encoding.",
+        "manual: you pick CRF or bitrate, output size varies.",
+    ],
+    "target_size_mb": [
+        "Final file size cap in MB.",
+        "Common: Discord 10, WhatsApp 16, Twitter 512.",
+        "Tool retries up to 5 passes to land in range.",
+    ],
+    "include_audio": [
+        "yes: keep audio track.",
+        "no: silent output. Useful for screencaps.",
+    ],
+    "audio_bitrate_kbps": [
+        "Higher = better quality, larger file.",
+        "Speech: 64-96. Music: 128-192.",
+        "Opus is ~30% more efficient than mp3/aac.",
+    ],
+    "width": [
+        "Output width in pixels.",
+        "Leave blank to keep source width.",
+        "If only one of width/height is set, aspect ratio is preserved.",
+    ],
+    "height": [
+        "Output height in pixels.",
+        "Leave blank to keep source height.",
+        "If only one of width/height is set, aspect ratio is preserved.",
+    ],
+    "fps": [
+        "Output frame rate.",
+        "Blank: keep source fps.",
+        "24-30 is standard. Lower fps shrinks file size.",
+    ],
+    "video_bitrate_kbps": [
+        "Manual video bitrate target.",
+        "Cannot be combined with CRF.",
+        "1080p30: 2000-5000. 720p30: 1200-2500.",
+    ],
+    "crf": [
+        "Constant Rate Factor (libx264 quality).",
+        "Lower = better quality + larger file.",
+        "18 visually lossless, 23 default, 28 small.",
+    ],
+    "preset": [
+        "Encode speed vs compression efficiency.",
+        "medium: fast, baseline efficiency.",
+        "slow: ~30% smaller at ~3x encode time.",
+        "veryslow: marginal extra savings for ~2x slow time.",
+    ],
+    "convert_button": [
+        "Run the conversion.",
+        "Disabled until required fields are valid.",
+        "C from anywhere also triggers it.",
+    ],
+}
+
+CONVERT_BUTTON_KEY = "__convert__"
+
+FIELD_SPECS_BY_KEY = {field.key: field for field in FORM_FIELDS}
+
+USE_UNICODE = "UTF-8" in os.environ.get("LANG", "").upper() or "UTF-8" in os.environ.get("LC_ALL", "").upper()
+
+if USE_UNICODE:
+    BOX = {
+        "tl": "┌", "tr": "┐", "bl": "└", "br": "┘",
+        "h": "─", "v": "│",
+        "fold_open": "▼", "fold_closed": "▶",
+        "cursor": "▸",
+        "ok": "✓", "bad": "✗", "empty": "·", "required": "!",
+    }
+else:
+    BOX = {
+        "tl": "+", "tr": "+", "bl": "+", "br": "+",
+        "h": "-", "v": "|",
+        "fold_open": "v", "fold_closed": ">",
+        "cursor": ">",
+        "ok": "y", "bad": "x", "empty": ".", "required": "!",
+    }
+
+
+def is_audio_only_output(output_path_raw: str) -> bool:
+    raw = output_path_raw.strip()
+    if not raw:
+        return False
+    return Path(raw).suffix.lower() in AUDIO_OUTPUT_EXTS
+
+
+def is_lossless_output(output_path_raw: str) -> bool:
+    raw = output_path_raw.strip()
+    if not raw:
+        return False
+    return Path(raw).suffix.lower() in AUTO_SIZE_AUDIO_UNSUPPORTED_EXTS
+
+
 class TuiState:
     def __init__(self, cwd: Path) -> None:
         self.cwd = cwd
@@ -677,8 +837,13 @@ class TuiState:
         self.preset = "slow"
         self.message = "Enter edits with Enter. Cycle options with Left/Right or Space. Convert with C."
 
-        candidate = find_single_media_file(cwd)
-        self.input_path = str(candidate) if candidate else ""
+        persisted = load_persisted_state()
+        last_input = persisted.get("last_input_path", "") if isinstance(persisted, dict) else ""
+        if last_input and Path(last_input).expanduser().exists():
+            self.input_path = last_input
+        else:
+            candidate = find_single_media_file(cwd)
+            self.input_path = str(candidate) if candidate else ""
         self.output_path = ""
         self._last_suggested_output = ""
         self._probe_cache_path = ""
@@ -696,6 +861,8 @@ class TuiState:
             self._probe_cache_media = None
             self._probe_cache_error = ""
             self._refresh_output_suggestion(force=False)
+            if value.strip():
+                save_persisted_state({"last_input_path": value.strip()})
         elif key == "output_path":
             self._last_suggested_output = value
 
@@ -800,125 +967,653 @@ class TuiState:
             lines = [f"Preview unavailable: {exc}"]
         return wrap_lines(lines, width)
 
+    def is_field_hidden(self, key: str) -> bool:
+        audio_only = is_audio_only_output(self.output_path)
+        lossless = is_lossless_output(self.output_path)
+        if key == "target_size_mb":
+            return self.mode != "auto_size"
+        if key in ("width", "height", "fps", "preset"):
+            return audio_only
+        if key == "video_bitrate_kbps":
+            return audio_only or self.mode == "auto_size"
+        if key == "crf":
+            if audio_only or self.mode == "auto_size":
+                return True
+            return bool(self.video_bitrate_kbps.strip())
+        if key == "include_audio":
+            return audio_only
+        if key == "audio_bitrate_kbps":
+            if not audio_only and self.include_audio == "no":
+                return True
+            if audio_only and lossless:
+                return True
+            return False
+        return False
 
-def prompt_for_value(stdscr: "curses._CursesWindow", label: str, current_value: str) -> Optional[str]:
-    height, width = stdscr.getmaxyx()
-    prompt = f"{label} (blank clears, Esc cancels). Current: {current_value or '<empty>'}"
-    stdscr.move(height - 2, 0)
-    stdscr.clrtoeol()
-    stdscr.addnstr(height - 2, 0, prompt, width - 1, curses.A_BOLD)
-    stdscr.move(height - 1, 0)
-    stdscr.clrtoeol()
-    curses.echo()
-    curses.curs_set(1)
-    try:
-        raw = stdscr.getstr(height - 1, 0, width - 1)
-    except KeyboardInterrupt:
-        raw = b""
-    finally:
-        curses.noecho()
-        curses.curs_set(0)
-    if raw == b"\x1b":
+    def visible_field_keys(self) -> List[str]:
+        keys: List[str] = []
+        for section in SECTIONS:
+            if not section.expanded:
+                continue
+            for field_key in section.field_keys:
+                if not self.is_field_hidden(field_key):
+                    keys.append(field_key)
+        return keys
+
+    def navigable_keys(self) -> List[str]:
+        return self.visible_field_keys() + [CONVERT_BUTTON_KEY]
+
+    def form_is_valid(self) -> Tuple[bool, str]:
+        try:
+            self.build_options()
+        except Exception as exc:
+            return False, str(exc)
+        return True, ""
+
+    def section_for_field(self, field_key: str) -> Optional[Section]:
+        for section in SECTIONS:
+            if field_key in section.field_keys:
+                return section
         return None
-    return raw.decode("utf-8").strip()
+
+    def validate_field(self, key: str) -> Tuple[str, str]:
+        spec = FIELD_SPECS_BY_KEY[key]
+        value = self.get_value(key).strip()
+        if spec.kind == "cycle":
+            return BOX["ok"], ""
+        required_keys = {"input_path", "output_path"}
+        if key == "target_size_mb" and self.mode == "auto_size":
+            required_keys = required_keys | {key}
+        if not value:
+            if key in required_keys:
+                return BOX["required"], "Required."
+            return BOX["empty"], ""
+        try:
+            if key in ("target_size_mb", "fps"):
+                parse_optional_float(value, spec.label)
+            elif key in ("audio_bitrate_kbps", "width", "height", "video_bitrate_kbps", "crf"):
+                parse_optional_int(value, spec.label)
+            elif key in ("input_path", "output_path"):
+                if key == "input_path" and not Path(value).expanduser().exists():
+                    return BOX["bad"], "File not found."
+        except ConversionError as exc:
+            return BOX["bad"], str(exc)
+        return BOX["ok"], ""
+
+    def estimate_lines(self) -> List[str]:
+        if self.mode != "auto_size":
+            return ["manual mode — size depends on encode parameters"]
+        try:
+            options = self.build_options()
+        except Exception as exc:
+            return [f"unavailable: {exc}"]
+        media = self.get_probe_media()
+        if media is None:
+            return ["unavailable: no probe"]
+        try:
+            video_kbps, audio_kbps = initial_auto_budgets(options, media)
+        except ConversionError as exc:
+            return [f"unavailable: {exc}"]
+        target_mb = options.target_size_mb or 0
+        lines = [f"target: {target_mb:.2f} MB"]
+        if video_kbps is not None:
+            lines.append(f"video budget: {video_kbps} kbps")
+        if audio_kbps is not None:
+            lines.append(f"audio budget: {audio_kbps} kbps")
+        return lines
+
+    def toggle_section(self, section_key: str) -> None:
+        for section in SECTIONS:
+            if section.key == section_key:
+                section.expanded = not section.expanded
+                return
 
 
-def draw_tui(stdscr: "curses._CursesWindow", state: TuiState, selected_index: int) -> None:
+COLOR_HEADER = 1
+COLOR_FOCUS = 2
+COLOR_OK = 3
+COLOR_BAD = 4
+COLOR_DIM = 5
+
+
+def init_colors() -> bool:
+    if not curses.has_colors():
+        return False
+    curses.start_color()
+    try:
+        curses.use_default_colors()
+        bg = -1
+    except curses.error:
+        bg = curses.COLOR_BLACK
+    curses.init_pair(COLOR_HEADER, curses.COLOR_CYAN, bg)
+    curses.init_pair(COLOR_FOCUS, curses.COLOR_YELLOW, bg)
+    curses.init_pair(COLOR_OK, curses.COLOR_GREEN, bg)
+    curses.init_pair(COLOR_BAD, curses.COLOR_RED, bg)
+    curses.init_pair(COLOR_DIM, curses.COLOR_WHITE, bg)
+    return True
+
+
+def color(pair: int) -> int:
+    try:
+        return curses.color_pair(pair)
+    except curses.error:
+        return 0
+
+
+def draw_box(stdscr: "curses._CursesWindow", y: int, x: int, h: int, w: int, title: str = "") -> None:
+    if h < 2 or w < 2:
+        return
+    height, width = stdscr.getmaxyx()
+    if y + h > height or x + w > width:
+        return
+    top = BOX["tl"] + BOX["h"] * (w - 2) + BOX["tr"]
+    bottom = BOX["bl"] + BOX["h"] * (w - 2) + BOX["br"]
+    try:
+        stdscr.addnstr(y, x, top, w)
+        for i in range(1, h - 1):
+            stdscr.addnstr(y + i, x, BOX["v"], 1)
+            stdscr.addnstr(y + i, x + w - 1, BOX["v"], 1)
+        stdscr.addnstr(y + h - 1, x, bottom, w)
+        if title:
+            label = f" {title} "
+            stdscr.addnstr(y, x + 2, label, max(0, w - 4), curses.A_BOLD | color(COLOR_HEADER))
+    except curses.error:
+        pass
+
+
+def modal_input(stdscr: "curses._CursesWindow", label: str, current: str) -> Optional[str]:
+    height, width = stdscr.getmaxyx()
+    box_w = min(max(50, len(current) + 20), width - 4)
+    box_h = 7
+    y = (height - box_h) // 2
+    x = (width - box_w) // 2
+    win = curses.newwin(box_h, box_w, y, x)
+    win.keypad(True)
+    win.erase()
+    draw_box(win, 0, 0, box_h, box_w, f"Edit: {label}")
+    try:
+        win.addnstr(2, 2, f"Current: {current or '<empty>'}", box_w - 4, color(COLOR_DIM))
+        win.addnstr(box_h - 2, 2, "Enter save · Esc cancel · Ctrl-U clear", box_w - 4, curses.A_DIM)
+        win.addnstr(3, 2, "> ", 2, curses.A_BOLD)
+    except curses.error:
+        pass
+    win.refresh()
+
+    buffer = current
+    cursor = len(buffer)
+    while True:
+        try:
+            win.move(3, 4)
+            win.clrtoeol()
+            win.addnstr(3, 4, buffer, box_w - 6)
+            win.addnstr(3, box_w - 1, BOX["v"], 1)
+            win.move(3, min(4 + cursor, box_w - 2))
+        except curses.error:
+            pass
+        curses.curs_set(1)
+        ch = win.getch()
+        curses.curs_set(0)
+        if ch == 27:
+            return None
+        if ch in (10, 13, curses.KEY_ENTER):
+            return buffer.strip()
+        if ch in (curses.KEY_BACKSPACE, 127, 8):
+            if cursor > 0:
+                buffer = buffer[: cursor - 1] + buffer[cursor:]
+                cursor -= 1
+            continue
+        if ch == 21:  # Ctrl-U
+            buffer = ""
+            cursor = 0
+            continue
+        if ch == curses.KEY_LEFT:
+            cursor = max(0, cursor - 1)
+            continue
+        if ch == curses.KEY_RIGHT:
+            cursor = min(len(buffer), cursor + 1)
+            continue
+        if ch == curses.KEY_HOME:
+            cursor = 0
+            continue
+        if ch == curses.KEY_END:
+            cursor = len(buffer)
+            continue
+        if 32 <= ch < 127:
+            buffer = buffer[:cursor] + chr(ch) + buffer[cursor:]
+            cursor += 1
+
+
+@dataclass
+class PickerEntry:
+    path: Path
+    is_dir: bool
+    size: Optional[int]
+
+
+def list_directory(directory: Path, show_all: bool) -> List[PickerEntry]:
+    entries: List[PickerEntry] = []
+    try:
+        children = sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    except (PermissionError, OSError):
+        return entries
+    for child in children:
+        if child.name.startswith(".") and not show_all:
+            continue
+        if child.is_dir():
+            entries.append(PickerEntry(child, True, None))
+            continue
+        if not show_all and child.suffix.lower() not in SUPPORTED_INPUT_EXTS:
+            continue
+        try:
+            size = child.stat().st_size
+        except OSError:
+            size = None
+        entries.append(PickerEntry(child, False, size))
+    return entries
+
+
+def file_picker(stdscr: "curses._CursesWindow", start: Path) -> Optional[Path]:
+    height, width = stdscr.getmaxyx()
+    box_w = min(max(60, width - 8), width - 2)
+    box_h = min(max(14, height - 6), height - 2)
+    y = (height - box_h) // 2
+    x = (width - box_w) // 2
+    win = curses.newwin(box_h, box_w, y, x)
+    win.keypad(True)
+
+    current_dir = start.expanduser().resolve()
+    if not current_dir.exists() or not current_dir.is_dir():
+        current_dir = Path.cwd()
+    show_all = False
+    selected = 0
+    scroll = 0
+
+    while True:
+        entries = list_directory(current_dir, show_all)
+        rows_visible = box_h - 5
+        if selected >= len(entries):
+            selected = max(0, len(entries) - 1)
+        if selected < scroll:
+            scroll = selected
+        elif selected >= scroll + rows_visible:
+            scroll = selected - rows_visible + 1
+
+        win.erase()
+        draw_box(win, 0, 0, box_h, box_w, "Pick input")
+        try:
+            path_text = str(current_dir)
+            if len(path_text) > box_w - 4:
+                path_text = "…" + path_text[-(box_w - 5):]
+            win.addnstr(1, 2, path_text, box_w - 4, color(COLOR_DIM))
+            footer = f"Enter open · Bksp up · . {'hide' if show_all else 'show'} hidden · Esc"
+            win.addnstr(box_h - 2, 2, footer, box_w - 4, curses.A_DIM)
+        except curses.error:
+            pass
+
+        parent_y = 3
+        try:
+            attr = curses.A_BOLD | color(COLOR_FOCUS) if selected == -1 else curses.A_NORMAL
+            cursor_mark = BOX["cursor"] if selected == -1 else " "
+            win.addnstr(parent_y, 2, f"{cursor_mark} ..", box_w - 4, attr)
+        except curses.error:
+            pass
+
+        for offset in range(rows_visible):
+            row_index = scroll + offset
+            if row_index >= len(entries):
+                break
+            entry = entries[row_index]
+            row_y = parent_y + 1 + offset
+            cursor_mark = BOX["cursor"] if row_index == selected else " "
+            name = entry.path.name + ("/" if entry.is_dir else "")
+            size_text = "" if entry.is_dir else (human_size(entry.size) if entry.size is not None else "?")
+            label = f"{cursor_mark} {name}"
+            attr = curses.A_BOLD | color(COLOR_FOCUS) if row_index == selected else curses.A_NORMAL
+            try:
+                win.addnstr(row_y, 2, label, box_w - 4 - len(size_text) - 1, attr)
+                if size_text:
+                    win.addnstr(row_y, box_w - 2 - len(size_text), size_text, len(size_text), attr | curses.A_DIM)
+            except curses.error:
+                pass
+
+        win.refresh()
+        ch = win.getch()
+        if ch == 27:
+            return None
+        if ch in (curses.KEY_UP, ord("k")):
+            selected = max(-1, selected - 1)
+            continue
+        if ch in (curses.KEY_DOWN, ord("j")):
+            selected = min(len(entries) - 1, selected + 1)
+            continue
+        if ch == curses.KEY_PPAGE:
+            selected = max(-1, selected - rows_visible)
+            continue
+        if ch == curses.KEY_NPAGE:
+            selected = min(len(entries) - 1, selected + rows_visible)
+            continue
+        if ch in (curses.KEY_BACKSPACE, 127, 8):
+            if current_dir.parent != current_dir:
+                current_dir = current_dir.parent
+                selected = 0
+                scroll = 0
+            continue
+        if ch == ord("."):
+            show_all = not show_all
+            selected = 0
+            scroll = 0
+            continue
+        if ch == ord("~"):
+            current_dir = Path.home()
+            selected = 0
+            scroll = 0
+            continue
+        if ch == ord("/"):
+            current_dir = Path("/")
+            selected = 0
+            scroll = 0
+            continue
+        if ch in (10, 13, curses.KEY_ENTER):
+            if selected == -1:
+                if current_dir.parent != current_dir:
+                    current_dir = current_dir.parent
+                    selected = 0
+                    scroll = 0
+                continue
+            if not entries:
+                continue
+            entry = entries[selected]
+            if entry.is_dir:
+                current_dir = entry.path
+                selected = 0
+                scroll = 0
+                continue
+            return entry.path
+
+
+def render_form_pane(
+    stdscr: "curses._CursesWindow",
+    state: TuiState,
+    selected_key: Optional[str],
+    y: int,
+    x: int,
+    h: int,
+    w: int,
+) -> None:
+    draw_box(stdscr, y, x, h, w, "Form")
+    inner_x = x + 2
+    inner_w = w - 4
+    cursor = y + 1
+    bottom = y + h - 1
+    for section in SECTIONS:
+        if cursor >= bottom:
+            break
+        marker = BOX["fold_open"] if section.expanded else BOX["fold_closed"]
+        title = f"{marker} {section.title}"
+        try:
+            stdscr.addnstr(cursor, inner_x, title, inner_w, curses.A_BOLD | color(COLOR_HEADER))
+        except curses.error:
+            pass
+        cursor += 1
+        if not section.expanded:
+            continue
+        for field_key in section.field_keys:
+            if cursor >= bottom:
+                break
+            if state.is_field_hidden(field_key):
+                continue
+            spec = FIELD_SPECS_BY_KEY[field_key]
+            value = state.get_value(field_key) or "<empty>"
+            glyph, _ = state.validate_field(field_key)
+            focused = field_key == selected_key
+            cursor_mark = BOX["cursor"] if focused else " "
+            label = f"{cursor_mark} {spec.label:>12}: "
+            row_attr = curses.A_BOLD | color(COLOR_FOCUS) if focused else curses.A_NORMAL
+            glyph_attr = color(COLOR_OK) if glyph == BOX["ok"] else color(COLOR_BAD) if glyph in (BOX["bad"], BOX["required"]) else curses.A_DIM
+            try:
+                stdscr.addnstr(cursor, inner_x, label, inner_w, row_attr)
+                value_x = inner_x + len(label)
+                value_w = max(0, inner_w - len(label) - 2)
+                stdscr.addnstr(cursor, value_x, value, value_w, row_attr)
+                stdscr.addnstr(cursor, inner_x + inner_w - 1, glyph, 1, glyph_attr)
+            except curses.error:
+                pass
+            cursor += 1
+
+    if cursor < bottom:
+        cursor += 1  # blank spacer
+        valid, _ = state.form_is_valid()
+        focused = selected_key == CONVERT_BUTTON_KEY
+        label = "[ Convert ]"
+        if focused and valid:
+            attr = curses.A_BOLD | curses.A_REVERSE | color(COLOR_OK)
+        elif valid:
+            attr = curses.A_BOLD | color(COLOR_OK)
+        else:
+            attr = curses.A_DIM
+        button_x = inner_x + max(0, (inner_w - len(label)) // 2)
+        try:
+            stdscr.addnstr(cursor, button_x, label, inner_w, attr)
+        except curses.error:
+            pass
+
+
+def render_info_pane(
+    stdscr: "curses._CursesWindow",
+    title: str,
+    lines: Sequence[str],
+    y: int,
+    x: int,
+    h: int,
+    w: int,
+) -> None:
+    draw_box(stdscr, y, x, h, w, title)
+    inner_x = x + 2
+    inner_w = w - 4
+    wrapped = wrap_lines(list(lines), inner_w)
+    for offset, line in enumerate(wrapped[: h - 2]):
+        try:
+            stdscr.addnstr(y + 1 + offset, inner_x, line, inner_w)
+        except curses.error:
+            pass
+
+
+def draw_tui(stdscr: "curses._CursesWindow", state: TuiState, selected_key: Optional[str]) -> None:
     stdscr.erase()
     height, width = stdscr.getmaxyx()
-    left_width = max(42, width // 2)
-    right_x = min(left_width + 2, width - 1)
 
-    stdscr.addnstr(0, 0, "Media Convert TUI", width - 1, curses.A_BOLD)
-    help_line = "Arrows/Tab move | Enter edits | Left/Right/Space cycle | C convert | Q quit"
-    stdscr.addnstr(1, 0, help_line, width - 1)
+    title = "Media Convert"
+    try:
+        stdscr.addnstr(0, 1, title, width - 2, curses.A_BOLD | color(COLOR_HEADER))
+        help_line = "↑↓ move · Enter edit/browse · ←→ cycle · Space fold · C convert · Q quit"
+        stdscr.addnstr(1, 1, help_line, width - 2, curses.A_DIM)
+    except curses.error:
+        pass
 
-    for index, field in enumerate(FORM_FIELDS):
-        y = 3 + index
-        if y >= height - 4:
-            break
-        label = f"{field.label:>14}: "
-        value = state.get_value(field.key) or "<empty>"
-        attr = curses.A_REVERSE if index == selected_index else curses.A_NORMAL
-        stdscr.addnstr(y, 0, label, left_width - 1, attr)
-        stdscr.addnstr(y, len(label), value, left_width - len(label) - 1, attr)
+    body_top = 2
+    body_bottom = height - 3
+    body_h = max(5, body_bottom - body_top)
+    left_w = max(38, width // 2)
+    right_x = left_w
+    right_w = max(20, width - right_x - 1)
 
-    summary_y = 3
-    stdscr.addnstr(summary_y - 1, right_x, "Input summary", width - right_x - 1, curses.A_BOLD)
-    for offset, line in enumerate(wrap_lines(state.media_summary(), width - right_x - 1)[:8]):
-        stdscr.addnstr(summary_y + offset, right_x, line, width - right_x - 1)
+    render_form_pane(stdscr, state, selected_key, body_top, 0, body_h, left_w)
 
-    preview_y = summary_y + 9
-    stdscr.addnstr(preview_y - 1, right_x, "Command preview", width - right_x - 1, curses.A_BOLD)
-    preview_lines = state.preview_lines(max(20, width - right_x - 1))
-    for offset, line in enumerate(preview_lines[: max(4, height - preview_y - 3)]):
-        stdscr.addnstr(preview_y + offset, right_x, line, width - right_x - 1)
+    summary_h = max(6, body_h // 4)
+    help_lines = help_lines_for(state, selected_key)
+    help_inner_w = max(10, right_w - 4)
+    help_wrapped = wrap_lines(help_lines, help_inner_w)
+    help_h = max(4, min(12, len(help_wrapped) + 2))
+    estimate_h = max(5, body_h // 5)
+    preview_h = body_h - summary_h - help_h - estimate_h
+    if preview_h < 4:
+        preview_h = 4
+        overflow = (summary_h + help_h + estimate_h + preview_h) - body_h
+        while overflow > 0 and help_h > 4:
+            help_h -= 1
+            overflow -= 1
+        while overflow > 0 and estimate_h > 4:
+            estimate_h -= 1
+            overflow -= 1
 
-    stdscr.move(height - 1, 0)
-    stdscr.clrtoeol()
-    stdscr.addnstr(height - 1, 0, state.message, width - 1, curses.A_DIM)
+    render_info_pane(stdscr, "Input", state.media_summary(), body_top, right_x, summary_h, right_w)
+    render_info_pane(stdscr, "Help", help_lines, body_top + summary_h, right_x, help_h, right_w)
+    render_info_pane(stdscr, "Estimate", state.estimate_lines(), body_top + summary_h + help_h, right_x, estimate_h, right_w)
+    render_info_pane(
+        stdscr,
+        "Command preview",
+        state.preview_lines(max(20, right_w - 4)),
+        body_top + summary_h + help_h + estimate_h,
+        right_x,
+        preview_h,
+        right_w,
+    )
+
+    hint = ""
+    if selected_key == CONVERT_BUTTON_KEY:
+        valid, reason = state.form_is_valid()
+        hint = "Press Enter or C to run." if valid else f"Cannot convert: {reason}"
+    elif selected_key:
+        glyph, reason = state.validate_field(selected_key)
+        base_hint = FIELD_HINTS.get(selected_key, "")
+        if reason:
+            hint = f"{base_hint}  ({reason})" if base_hint else reason
+        else:
+            hint = base_hint
+
+    try:
+        stdscr.move(height - 2, 0)
+        stdscr.clrtoeol()
+        stdscr.addnstr(height - 2, 1, hint, width - 2, curses.A_DIM)
+        stdscr.move(height - 1, 0)
+        stdscr.clrtoeol()
+        stdscr.addnstr(height - 1, 1, state.message, width - 2, color(COLOR_HEADER))
+    except curses.error:
+        pass
     stdscr.refresh()
+
+
+def move_selection(state: TuiState, current: Optional[str], delta: int) -> Optional[str]:
+    keys = state.navigable_keys()
+    if not keys:
+        return None
+    if current not in keys:
+        return keys[0]
+    index = keys.index(current)
+    return keys[(index + delta) % len(keys)]
+
+
+def help_lines_for(state: TuiState, selected_key: Optional[str]) -> List[str]:
+    if selected_key is None:
+        return ["Move with ↑↓ or Tab.", "Enter edits, ←→ cycles options."]
+    if selected_key == CONVERT_BUTTON_KEY:
+        lines = list(FIELD_HELP.get("convert_button", []))
+        valid, reason = state.form_is_valid()
+        if not valid:
+            lines.append("")
+            lines.append(f"Blocked: {reason}")
+        return lines
+    return list(FIELD_HELP.get(selected_key, []))
+
+
+def trigger_convert(stdscr: "curses._CursesWindow", state: TuiState) -> None:
+    valid, reason = state.form_is_valid()
+    if not valid:
+        state.message = reason
+        return
+    options = state.build_options()
+    curses.def_prog_mode()
+    curses.endwin()
+    try:
+        result = run_conversion(options)
+        print_result(result)
+        input("\nPress Enter to return to the TUI...")
+        state.message = f"Finished: {result.output_path.name} ({result.size_bytes} bytes)"
+    except Exception as exc:
+        print(f"\nConversion failed: {exc}")
+        input("\nPress Enter to return to the TUI...")
+        state.message = str(exc)
+    finally:
+        curses.reset_prog_mode()
+        curses.curs_set(0)
+        stdscr.refresh()
 
 
 def run_tui(stdscr: "curses._CursesWindow") -> None:
     curses.curs_set(0)
     stdscr.keypad(True)
+    init_colors()
     state = TuiState(Path.cwd())
-    selected_index = 0
+    keys = state.navigable_keys()
+    selected_key: Optional[str] = keys[0] if keys else None
 
     while True:
-        draw_tui(stdscr, state, selected_index)
+        if selected_key is not None and selected_key != CONVERT_BUTTON_KEY and state.is_field_hidden(selected_key):
+            selected_key = move_selection(state, selected_key, 1)
+
+        draw_tui(stdscr, state, selected_key)
         key = stdscr.getch()
 
         if key in (ord("q"), ord("Q")):
             return
         if key in (curses.KEY_UP, ord("k")):
-            selected_index = (selected_index - 1) % len(FORM_FIELDS)
+            selected_key = move_selection(state, selected_key, -1)
             continue
         if key in (curses.KEY_DOWN, ord("j"), 9):
-            selected_index = (selected_index + 1) % len(FORM_FIELDS)
-            continue
-        current = FORM_FIELDS[selected_index]
-
-        if key in (curses.KEY_LEFT,):
-            if current.kind == "cycle":
-                state.cycle(current.key, -1)
-            continue
-        if key in (curses.KEY_RIGHT, ord(" ")):
-            if current.kind == "cycle":
-                state.cycle(current.key, 1)
-            continue
-        if key in (10, 13, curses.KEY_ENTER):
-            if current.kind == "cycle":
-                state.cycle(current.key, 1)
-                continue
-            new_value = prompt_for_value(stdscr, current.label, state.get_value(current.key))
-            if new_value is not None:
-                state.set_value(current.key, new_value)
-                state.message = f"Updated {current.label}."
+            selected_key = move_selection(state, selected_key, 1)
             continue
         if key in (ord("c"), ord("C")):
-            try:
-                options = state.build_options()
-            except Exception as exc:
-                state.message = str(exc)
-                continue
+            trigger_convert(stdscr, state)
+            continue
+        if selected_key == CONVERT_BUTTON_KEY:
+            if key in (10, 13, curses.KEY_ENTER, ord(" ")):
+                trigger_convert(stdscr, state)
+            continue
+        if key == ord(" "):
+            if selected_key:
+                spec = FIELD_SPECS_BY_KEY[selected_key]
+                if spec.kind == "cycle":
+                    state.cycle(selected_key, 1)
+                    continue
+                section = state.section_for_field(selected_key)
+                if section:
+                    state.toggle_section(section.key)
+            continue
+        if selected_key is None:
+            continue
+        spec = FIELD_SPECS_BY_KEY[selected_key]
 
-            curses.def_prog_mode()
-            curses.endwin()
-            try:
-                result = run_conversion(options)
-                print_result(result)
-                input("\nPress Enter to return to the TUI...")
-                state.message = f"Finished: {result.output_path.name} ({result.size_bytes} bytes)"
-            except Exception as exc:
-                print(f"\nConversion failed: {exc}")
-                input("\nPress Enter to return to the TUI...")
-                state.message = str(exc)
-            finally:
-                curses.reset_prog_mode()
-                curses.curs_set(0)
-                stdscr.refresh()
+        if key == curses.KEY_LEFT:
+            if spec.kind == "cycle":
+                state.cycle(selected_key, -1)
+            continue
+        if key == curses.KEY_RIGHT:
+            if spec.kind == "cycle":
+                state.cycle(selected_key, 1)
+            continue
+        if key in (10, 13, curses.KEY_ENTER):
+            if spec.kind == "cycle":
+                state.cycle(selected_key, 1)
+                continue
+            if selected_key == "input_path":
+                current_value = state.get_value("input_path").strip()
+                start_dir = Path(current_value).expanduser().parent if current_value else Path.cwd()
+                picked = file_picker(stdscr, start_dir)
+                if picked is not None:
+                    state.set_value("input_path", str(picked))
+                    state.message = f"Selected {picked.name}"
+                continue
+            new_value = modal_input(stdscr, spec.label, state.get_value(selected_key))
+            if new_value is not None:
+                state.set_value(selected_key, new_value)
+                state.message = f"Updated {spec.label}."
+            continue
+        if key in (ord("e"), ord("E")) and selected_key == "input_path":
+            new_value = modal_input(stdscr, spec.label, state.get_value(selected_key))
+            if new_value is not None:
+                state.set_value(selected_key, new_value)
+                state.message = f"Updated {spec.label}."
+            continue
 
 
 def build_parser() -> argparse.ArgumentParser:
