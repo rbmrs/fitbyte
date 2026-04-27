@@ -1100,21 +1100,33 @@ def color(pair: int) -> int:
         return 0
 
 
-def draw_box(stdscr: "curses._CursesWindow", y: int, x: int, h: int, w: int, title: str = "") -> None:
+def draw_box(
+    stdscr: "curses._CursesWindow",
+    y: int,
+    x: int,
+    h: int,
+    w: int,
+    title: str = "",
+    *,
+    draw_top: bool = True,
+    draw_bottom: bool = True,
+) -> None:
     if h < 2 or w < 2:
         return
     height, width = stdscr.getmaxyx()
     if y + h > height or x + w > width:
         return
-    top = BOX["tl"] + BOX["h"] * (w - 2) + BOX["tr"]
-    bottom = BOX["bl"] + BOX["h"] * (w - 2) + BOX["br"]
     try:
-        stdscr.addnstr(y, x, top, w)
+        if draw_top:
+            top = BOX["tl"] + BOX["h"] * (w - 2) + BOX["tr"]
+            stdscr.addnstr(y, x, top, w)
         for i in range(1, h - 1):
             stdscr.addnstr(y + i, x, BOX["v"], 1)
             stdscr.addnstr(y + i, x + w - 1, BOX["v"], 1)
-        stdscr.addnstr(y + h - 1, x, bottom, w)
-        if title:
+        if draw_bottom:
+            bottom = BOX["bl"] + BOX["h"] * (w - 2) + BOX["br"]
+            stdscr.addnstr(y + h - 1, x, bottom, w)
+        if title and draw_top:
             label = f" {title} "
             stdscr.addnstr(y, x + 2, label, max(0, w - 4), curses.A_BOLD | color(COLOR_HEADER))
     except curses.error:
@@ -1406,8 +1418,11 @@ def render_info_pane(
     x: int,
     h: int,
     w: int,
+    *,
+    draw_top: bool = True,
+    draw_bottom: bool = True,
 ) -> None:
-    draw_box(stdscr, y, x, h, w, title)
+    draw_box(stdscr, y, x, h, w, title, draw_top=draw_top, draw_bottom=draw_bottom)
     inner_x = x + 2
     inner_w = w - 4
     wrapped = wrap_lines(list(lines), inner_w)
@@ -1419,7 +1434,7 @@ def render_info_pane(
 
 
 def draw_tui(stdscr: "curses._CursesWindow", state: TuiState, selected_key: Optional[str]) -> None:
-    stdscr.erase()
+    stdscr.clear()
     height, width = stdscr.getmaxyx()
 
     title = "Media Convert"
@@ -1439,35 +1454,45 @@ def draw_tui(stdscr: "curses._CursesWindow", state: TuiState, selected_key: Opti
 
     render_form_pane(stdscr, state, selected_key, body_top, 0, body_h, left_w)
 
-    summary_h = max(6, body_h // 4)
+    inner_w = max(10, right_w - 4)
+    summary_lines = state.media_summary()
     help_lines = help_lines_for(state, selected_key)
-    help_inner_w = max(10, right_w - 4)
-    help_wrapped = wrap_lines(help_lines, help_inner_w)
-    help_h = max(4, min(12, len(help_wrapped) + 2))
-    estimate_h = max(5, body_h // 5)
-    preview_h = body_h - summary_h - help_h - estimate_h
-    if preview_h < 4:
-        preview_h = 4
-        overflow = (summary_h + help_h + estimate_h + preview_h) - body_h
-        while overflow > 0 and help_h > 4:
-            help_h -= 1
-            overflow -= 1
-        while overflow > 0 and estimate_h > 4:
-            estimate_h -= 1
-            overflow -= 1
+    estimate_lines = state.estimate_lines()
+    preview_lines = state.preview_lines(inner_w)
 
-    render_info_pane(stdscr, "Input", state.media_summary(), body_top, right_x, summary_h, right_w)
-    render_info_pane(stdscr, "Help", help_lines, body_top + summary_h, right_x, help_h, right_w)
-    render_info_pane(stdscr, "Estimate", state.estimate_lines(), body_top + summary_h + help_h, right_x, estimate_h, right_w)
-    render_info_pane(
-        stdscr,
-        "Command preview",
-        state.preview_lines(max(20, right_w - 4)),
-        body_top + summary_h + help_h + estimate_h,
-        right_x,
-        preview_h,
-        right_w,
-    )
+    # Each pane carries its own top + bottom border. Adjacent panes
+    # are separated by one blank row to avoid border collisions.
+    gap = 1
+    pane_count = 4
+    summary_h = min(max(4, len(wrap_lines(summary_lines, inner_w)) + 2), max(4, body_h // 3))
+    help_h = min(max(4, len(wrap_lines(help_lines, inner_w)) + 2), 12)
+    estimate_h = max(4, len(wrap_lines(estimate_lines, inner_w)) + 2)
+    min_preview_h = 4
+
+    def total_rows() -> int:
+        return summary_h + help_h + estimate_h + min_preview_h + gap * (pane_count - 1)
+
+    while total_rows() > body_h:
+        if help_h > 4:
+            help_h -= 1
+        elif summary_h > 4:
+            summary_h -= 1
+        elif estimate_h > 4:
+            estimate_h -= 1
+        else:
+            break
+
+    preview_h = max(min_preview_h, body_h - (summary_h + help_h + estimate_h + gap * (pane_count - 1)))
+
+    y0 = body_top
+    y1 = y0 + summary_h + gap
+    y2 = y1 + help_h + gap
+    y3 = y2 + estimate_h + gap
+
+    render_info_pane(stdscr, "Input", summary_lines, y0, right_x, summary_h, right_w)
+    render_info_pane(stdscr, "Help", help_lines, y1, right_x, help_h, right_w)
+    render_info_pane(stdscr, "Estimate", estimate_lines, y2, right_x, estimate_h, right_w)
+    render_info_pane(stdscr, "Command preview", preview_lines, y3, right_x, preview_h, right_w)
 
     hint = ""
     if selected_key == CONVERT_BUTTON_KEY:
