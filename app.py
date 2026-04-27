@@ -6,15 +6,20 @@ import curses
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
-from dataclasses import dataclass
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 
 VIDEO_OUTPUT_EXTS = {".mp4", ".mkv", ".mov"}
@@ -185,6 +190,186 @@ def run_streaming(cmd: Sequence[str]) -> None:
     proc = subprocess.run(list(cmd), check=False)
     if proc.returncode != 0:
         raise ConversionError(f"Command failed with exit code {proc.returncode}: {shlex.join(cmd)}")
+
+
+@dataclass
+class ProgressUpdate:
+    phase: str = ""
+    fraction: float = 0.0
+    speed: str = ""
+    out_time_seconds: float = 0.0
+    extra: str = ""
+
+
+@dataclass
+class ProgressContext:
+    log_path: Path
+    callback: Optional[Callable[[ProgressUpdate], None]] = None
+    cancel_event: Optional[threading.Event] = None
+    phase: str = ""
+    phase_weight: float = 1.0
+    phase_start: float = 0.0
+    duration: float = 0.0
+    log_lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def emit(self, update: ProgressUpdate) -> None:
+        if self.callback is not None:
+            self.callback(update)
+
+    def append_log(self, text: str) -> None:
+        if not text:
+            return
+        with self.log_lock:
+            try:
+                with self.log_path.open("a", encoding="utf-8", errors="replace") as fh:
+                    fh.write(text)
+                    if not text.endswith("\n"):
+                        fh.write("\n")
+            except OSError:
+                pass
+
+
+PROGRESS_KV = re.compile(r"^([a-zA-Z_]+)=(.*)$")
+
+
+def _inject_progress_flags(cmd: Sequence[str]) -> List[str]:
+    new_cmd = list(cmd)
+    if new_cmd and new_cmd[0].endswith("ffmpeg"):
+        injected = [new_cmd[0], "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1"]
+        injected.extend(new_cmd[1:])
+        return injected
+    return new_cmd
+
+
+def run_streaming_with_progress(cmd: Sequence[str], ctx: ProgressContext) -> None:
+    if ctx.cancel_event is not None and ctx.cancel_event.is_set():
+        raise ConversionError("Canceled by user.")
+
+    cmd_list = _inject_progress_flags(cmd)
+    ctx.append_log(f"\n$ {shlex.join(cmd_list)}")
+
+    proc = subprocess.Popen(
+        cmd_list,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    stderr_thread = threading.Thread(
+        target=_drain_stream,
+        args=(proc.stderr, ctx),
+        daemon=True,
+    )
+    stderr_thread.start()
+
+    watchdog_stop = threading.Event()
+
+    def watchdog() -> None:
+        while not watchdog_stop.is_set():
+            if ctx.cancel_event is not None and ctx.cancel_event.is_set():
+                if proc.poll() is None:
+                    try:
+                        proc.terminate()
+                    except OSError:
+                        pass
+                    try:
+                        proc.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
+                return
+            if watchdog_stop.wait(0.1):
+                return
+
+    watchdog_thread = threading.Thread(target=watchdog, daemon=True)
+    watchdog_thread.start()
+
+    current = ProgressUpdate(phase=ctx.phase)
+    try:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.strip()
+            if not line:
+                continue
+            match = PROGRESS_KV.match(line)
+            if not match:
+                continue
+            key, value = match.group(1), match.group(2).strip()
+            if key == "out_time_ms" or key == "out_time_us":
+                try:
+                    micros = float(value)
+                    current.out_time_seconds = micros / 1_000_000.0
+                except ValueError:
+                    pass
+            elif key == "out_time":
+                current.out_time_seconds = _parse_ffmpeg_time(value)
+            elif key == "speed":
+                current.speed = value
+            elif key == "progress":
+                if ctx.duration > 0:
+                    fraction = current.out_time_seconds / ctx.duration
+                    fraction = max(0.0, min(1.0, fraction))
+                else:
+                    fraction = 0.0 if value != "end" else 1.0
+                if value == "end":
+                    fraction = 1.0
+                current.fraction = ctx.phase_start + fraction * ctx.phase_weight
+                current.phase = ctx.phase
+                ctx.emit(current)
+                current = ProgressUpdate(phase=ctx.phase, fraction=current.fraction)
+    finally:
+        if proc.stdout:
+            proc.stdout.close()
+        try:
+            proc.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            proc.wait()
+        watchdog_stop.set()
+        watchdog_thread.join(timeout=1.0)
+        stderr_thread.join(timeout=1.0)
+
+    if ctx.cancel_event is not None and ctx.cancel_event.is_set():
+        raise ConversionError("Canceled by user.")
+    if proc.returncode != 0:
+        raise ConversionError(f"ffmpeg failed (exit {proc.returncode}). See log: {ctx.log_path}")
+
+
+def _drain_stream(stream, ctx: ProgressContext) -> None:
+    try:
+        for line in stream:
+            ctx.append_log(line.rstrip("\n"))
+    except Exception:
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
+def _parse_ffmpeg_time(value: str) -> float:
+    try:
+        parts = value.split(":")
+        if len(parts) == 3:
+            h, m, s = parts
+            return int(h) * 3600 + int(m) * 60 + float(s)
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def create_log_file() -> Path:
+    base = Path(os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")) / "media-convert" / "logs"
+    base.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return base / f"convert-{stamp}.log"
 
 
 def probe_media(path: Path) -> MediaInfo:
@@ -501,14 +686,18 @@ def scale_bitrate(current_kbps: int, target_bytes: int, actual_bytes: int, reduc
     return max(current_kbps + 1, next_value)
 
 
-def run_auto_video(options: EncodeOptions, media: MediaInfo) -> ConversionResult:
+def run_auto_video(options: EncodeOptions, media: MediaInfo, ctx: Optional[ProgressContext] = None) -> ConversionResult:
     target_bytes = int(options.target_size_mb * 1_000_000)
     video_kbps, audio_kbps = initial_auto_budgets(options, media)
     commands: List[List[str]] = []
     attempts = 0
 
+    max_attempts = 5
+    if ctx is not None:
+        ctx.duration = media.duration
+
     with tempfile.TemporaryDirectory(prefix="media-convert-pass-") as temp_dir:
-        for attempt in range(1, 6):
+        for attempt in range(1, max_attempts + 1):
             attempts = attempt
             passlog = passlog_prefix(temp_dir, attempt)
             cmd1 = build_video_encode_command(
@@ -529,8 +718,20 @@ def run_auto_video(options: EncodeOptions, media: MediaInfo) -> ConversionResult
                 passlogfile=passlog,
             )
             commands.extend([cmd1, cmd2])
-            run_streaming(cmd1)
-            run_streaming(cmd2)
+            if ctx is not None:
+                attempt_base = (attempt - 1) / max_attempts
+                attempt_span = 1.0 / max_attempts
+                ctx.phase = f"attempt {attempt}/{max_attempts} pass 1"
+                ctx.phase_start = attempt_base
+                ctx.phase_weight = attempt_span * 0.5
+                run_streaming_with_progress(cmd1, ctx)
+                ctx.phase = f"attempt {attempt}/{max_attempts} pass 2"
+                ctx.phase_start = attempt_base + attempt_span * 0.5
+                ctx.phase_weight = attempt_span * 0.5
+                run_streaming_with_progress(cmd2, ctx)
+            else:
+                run_streaming(cmd1)
+                run_streaming(cmd2)
 
             actual_bytes = options.output_path.stat().st_size
             if actual_bytes <= target_bytes and actual_bytes >= int(target_bytes * 0.965):
@@ -558,17 +759,27 @@ def run_auto_video(options: EncodeOptions, media: MediaInfo) -> ConversionResult
     )
 
 
-def run_auto_audio(options: EncodeOptions, media: MediaInfo) -> ConversionResult:
+def run_auto_audio(options: EncodeOptions, media: MediaInfo, ctx: Optional[ProgressContext] = None) -> ConversionResult:
     target_bytes = int(options.target_size_mb * 1_000_000)
     _, audio_kbps = initial_auto_budgets(options, media)
     commands: List[List[str]] = []
     attempts = 0
 
-    for attempt in range(1, 6):
+    max_attempts = 5
+    if ctx is not None:
+        ctx.duration = media.duration
+
+    for attempt in range(1, max_attempts + 1):
         attempts = attempt
         cmd = build_audio_encode_command(options, audio_kbps=audio_kbps)
         commands.append(cmd)
-        run_streaming(cmd)
+        if ctx is not None:
+            ctx.phase = f"attempt {attempt}/{max_attempts}"
+            ctx.phase_start = (attempt - 1) / max_attempts
+            ctx.phase_weight = 1.0 / max_attempts
+            run_streaming_with_progress(cmd, ctx)
+        else:
+            run_streaming(cmd)
         actual_bytes = options.output_path.stat().st_size
         if actual_bytes <= target_bytes and actual_bytes >= int(target_bytes * 0.965):
             break
@@ -594,13 +805,20 @@ def run_auto_audio(options: EncodeOptions, media: MediaInfo) -> ConversionResult
     )
 
 
-def run_manual(options: EncodeOptions, media: MediaInfo) -> ConversionResult:
+def run_manual(options: EncodeOptions, media: MediaInfo, ctx: Optional[ProgressContext] = None) -> ConversionResult:
     kind = output_kind(options.output_path)
     if kind == "video":
         cmd = build_video_encode_command(options, media, video_kbps=None, audio_kbps=options.audio_bitrate_kbps)
     else:
         cmd = build_audio_encode_command(options, audio_kbps=options.audio_bitrate_kbps)
-    run_streaming(cmd)
+    if ctx is not None:
+        ctx.duration = media.duration
+        ctx.phase = "encoding"
+        ctx.phase_start = 0.0
+        ctx.phase_weight = 1.0
+        run_streaming_with_progress(cmd, ctx)
+    else:
+        run_streaming(cmd)
     final_media = probe_media(options.output_path)
     return ConversionResult(
         output_path=options.output_path,
@@ -612,17 +830,17 @@ def run_manual(options: EncodeOptions, media: MediaInfo) -> ConversionResult:
     )
 
 
-def run_conversion(options: EncodeOptions) -> ConversionResult:
+def run_conversion(options: EncodeOptions, ctx: Optional[ProgressContext] = None) -> ConversionResult:
     media = probe_media(options.input_path)
     validate_options(options, media)
     if options.output_path.exists() and not options.overwrite:
         raise ConversionError(f"Output file already exists: {options.output_path}")
     kind = output_kind(options.output_path)
     if options.mode == "manual":
-        return run_manual(options, media)
+        return run_manual(options, media, ctx)
     if kind == "video":
-        return run_auto_video(options, media)
-    return run_auto_audio(options, media)
+        return run_auto_video(options, media, ctx)
+    return run_auto_audio(options, media, ctx)
 
 
 def preview_commands(options: EncodeOptions, media: MediaInfo) -> List[str]:
@@ -822,9 +1040,23 @@ def is_lossless_output(output_path_raw: str) -> bool:
     return Path(raw).suffix.lower() in AUTO_SIZE_AUDIO_UNSUPPORTED_EXTS
 
 
+@dataclass
+class ProgressView:
+    log_path: Path
+    log_tail: deque
+    phase: str = "starting"
+    fraction: float = 0.0
+    speed: str = ""
+    out_time_seconds: float = 0.0
+    elapsed: float = 0.0
+    status: str = "running"  # running | complete | failed
+    error_text: str = ""
+
+
 class TuiState:
     def __init__(self, cwd: Path) -> None:
         self.cwd = cwd
+        self.progress: Optional[ProgressView] = None
         self.mode = "auto_size"
         self.target_size_mb = "10"
         self.include_audio = "yes"
@@ -1343,6 +1575,73 @@ def file_picker(stdscr: "curses._CursesWindow", start: Path) -> Optional[Path]:
             return entry.path
 
 
+PROGRESS_PANE_MIN_H = 8
+PROGRESS_LOG_LINES = 4
+
+
+def render_progress_pane(
+    stdscr: "curses._CursesWindow",
+    progress: ProgressView,
+    y: int,
+    x: int,
+    h: int,
+    w: int,
+) -> None:
+    if h < 4 or w < 10:
+        return
+    title = {"running": "Converting", "complete": "Done", "failed": "Failed"}.get(progress.status, "Progress")
+    draw_box(stdscr, y, x, h, w, title)
+    inner_x = x + 2
+    inner_w = w - 4
+
+    fraction = max(0.0, min(1.0, progress.fraction))
+    bar_w = max(8, inner_w - 8)
+    filled = int(round(bar_w * fraction))
+    bar = "=" * filled + "-" * (bar_w - filled)
+    pct = f"{int(fraction * 100):3d}%"
+
+    phase_line = progress.phase or progress.status
+    speed_bits: List[str] = []
+    if progress.speed:
+        speed_bits.append(f"speed {progress.speed}")
+    if progress.out_time_seconds:
+        speed_bits.append(f"t {progress.out_time_seconds:5.1f}s")
+    speed_bits.append(f"elapsed {progress.elapsed:5.1f}s")
+    speed_line = " · ".join(speed_bits)
+
+    log_label = f"log: {_truncate_middle(str(progress.log_path), max(0, inner_w - 5))}"
+
+    try:
+        stdscr.addnstr(y + 1, inner_x, phase_line, inner_w, color(COLOR_HEADER) | curses.A_BOLD)
+        stdscr.addnstr(y + 2, inner_x, f"[{bar}] {pct}", inner_w)
+        stdscr.addnstr(y + 3, inner_x, speed_line, inner_w, curses.A_DIM)
+        stdscr.addnstr(y + 4, inner_x, log_label, inner_w, color(COLOR_DIM))
+    except curses.error:
+        pass
+
+    log_top = y + 5
+    log_h = max(0, h - 6)
+    if log_h > 0:
+        try:
+            stdscr.addnstr(log_top, inner_x, "-" * inner_w, inner_w, curses.A_DIM)
+        except curses.error:
+            pass
+        tail = list(progress.log_tail)[-log_h:]
+        for offset in range(log_h):
+            line_y = log_top + 1 + offset
+            if line_y >= y + h - 1:
+                break
+            idx = offset - (log_h - len(tail))
+            text = tail[idx] if 0 <= idx < len(tail) else ""
+            text = text.replace("\t", " ")
+            if len(text) > inner_w:
+                text = "…" + text[-(inner_w - 1):]
+            try:
+                stdscr.addnstr(line_y, inner_x, text.ljust(inner_w), inner_w, curses.A_DIM)
+            except curses.error:
+                pass
+
+
 def render_form_pane(
     stdscr: "curses._CursesWindow",
     state: TuiState,
@@ -1352,11 +1651,18 @@ def render_form_pane(
     h: int,
     w: int,
 ) -> None:
-    draw_box(stdscr, y, x, h, w, "Form")
+    progress_h = 0
+    if state.progress is not None:
+        log_lines = PROGRESS_LOG_LINES if state.progress.status == "running" else PROGRESS_LOG_LINES + 2
+        progress_h = min(h - 6, 6 + log_lines)
+        progress_h = max(PROGRESS_PANE_MIN_H, progress_h)
+    form_h = h - progress_h
+
+    draw_box(stdscr, y, x, form_h, w, "Form")
     inner_x = x + 2
     inner_w = w - 4
     cursor = y + 1
-    bottom = y + h - 1
+    bottom = y + form_h - 1
     for section in SECTIONS:
         if cursor >= bottom:
             break
@@ -1408,6 +1714,9 @@ def render_form_pane(
             stdscr.addnstr(cursor, button_x, label, inner_w, attr)
         except curses.error:
             pass
+
+    if state.progress is not None and progress_h > 0:
+        render_progress_pane(stdscr, state.progress, y + form_h, x, progress_h, w)
 
 
 def render_info_pane(
@@ -1541,27 +1850,110 @@ def help_lines_for(state: TuiState, selected_key: Optional[str]) -> List[str]:
     return list(FIELD_HELP.get(selected_key, []))
 
 
+def _truncate_middle(text: str, width: int) -> str:
+    if width <= 1 or len(text) <= width:
+        return text
+    if width <= 3:
+        return text[:width]
+    keep = width - 1
+    head = keep // 2
+    tail = keep - head
+    return text[:head] + "…" + text[-tail:]
+
+
 def trigger_convert(stdscr: "curses._CursesWindow", state: TuiState) -> None:
     valid, reason = state.form_is_valid()
     if not valid:
         state.message = reason
         return
     options = state.build_options()
-    curses.def_prog_mode()
-    curses.endwin()
+
+    log_path = create_log_file()
+    log_tail: deque = deque(maxlen=200)
+    cancel_event = threading.Event()
+    update_lock = threading.Lock()
+
+    progress = ProgressView(log_path=log_path, log_tail=log_tail, phase="starting")
+    state.progress = progress
+
+    def on_progress(update: ProgressUpdate) -> None:
+        with update_lock:
+            progress.phase = update.phase
+            progress.fraction = update.fraction
+            progress.speed = update.speed
+            progress.out_time_seconds = update.out_time_seconds
+
+    ctx = ProgressContext(
+        log_path=log_path,
+        callback=on_progress,
+        cancel_event=cancel_event,
+    )
+    original_append = ctx.append_log
+
+    def append_with_tail(text: str) -> None:
+        original_append(text)
+        for piece in text.splitlines():
+            if piece.strip():
+                log_tail.append(piece)
+
+    ctx.append_log = append_with_tail  # type: ignore[assignment]
+
+    result_box: dict = {}
+
+    def worker() -> None:
+        try:
+            result_box["result"] = run_conversion(options, ctx)
+        except Exception as exc:  # noqa: BLE001
+            result_box["error"] = exc
+
+    log_path.write_text(f"media-convert log {datetime.now().isoformat()}\n", encoding="utf-8")
+    log_tail.append(f"started at {datetime.now().strftime('%H:%M:%S')}")
+
+    state.message = f"Converting… (Q to cancel)  log: {log_path}"
+    thread = threading.Thread(target=worker, daemon=True)
+    started = time.monotonic()
+    thread.start()
+
+    stdscr.nodelay(True)
     try:
-        result = run_conversion(options)
-        print_result(result)
-        input("\nPress Enter to return to the TUI...")
-        state.message = f"Finished: {result.output_path.name} ({result.size_bytes} bytes)"
-    except Exception as exc:
-        print(f"\nConversion failed: {exc}")
-        input("\nPress Enter to return to the TUI...")
-        state.message = str(exc)
+        while thread.is_alive():
+            with update_lock:
+                progress.elapsed = time.monotonic() - started
+            draw_tui(stdscr, state, CONVERT_BUTTON_KEY)
+            try:
+                ch = stdscr.getch()
+            except KeyboardInterrupt:
+                ch = 27
+            if ch in (ord("q"), ord("Q"), 27):
+                if not cancel_event.is_set():
+                    cancel_event.set()
+                    log_tail.append("cancel requested")
+                    state.message = f"Cancel requested…  log: {log_path}"
+            time.sleep(0.1)
+        thread.join(timeout=10.0)
+        if thread.is_alive():
+            cancel_event.set()
+            thread.join(timeout=5.0)
     finally:
-        curses.reset_prog_mode()
-        curses.curs_set(0)
-        stdscr.refresh()
+        stdscr.nodelay(False)
+
+    progress.elapsed = time.monotonic() - started
+    if "error" in result_box:
+        err = result_box["error"]
+        progress.status = "failed"
+        progress.phase = "failed"
+        progress.error_text = str(err)
+        log_tail.append(f"failed: {err}")
+        state.message = f"Failed: {err}  log: {log_path}  (Enter to dismiss)"
+    else:
+        result: ConversionResult = result_box["result"]
+        progress.status = "complete"
+        progress.phase = "complete"
+        progress.fraction = 1.0
+        log_tail.append(f"done — {result.output_path.name} {human_size(result.size_bytes)}")
+        state.message = f"Finished: {result.output_path.name} ({human_size(result.size_bytes)})  log: {log_path}  (Enter to dismiss)"
+
+    draw_tui(stdscr, state, CONVERT_BUTTON_KEY)
 
 
 def run_tui(stdscr: "curses._CursesWindow") -> None:
@@ -1578,6 +1970,12 @@ def run_tui(stdscr: "curses._CursesWindow") -> None:
 
         draw_tui(stdscr, state, selected_key)
         key = stdscr.getch()
+
+        if state.progress is not None and state.progress.status != "running":
+            if key in (10, 13, curses.KEY_ENTER, 27, ord(" "), ord("q"), ord("Q")):
+                state.progress = None
+                state.message = "Press Convert to start another, or Q to quit."
+                continue
 
         if key in (ord("q"), ord("Q")):
             return
