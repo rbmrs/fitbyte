@@ -46,7 +46,7 @@ class ConversionError(RuntimeError):
 
 def state_file_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "media-convert" / "state.json"
+    return Path(base) / "shrinky" / "state.json"
 
 
 def load_persisted_state() -> dict:
@@ -366,7 +366,7 @@ def _parse_ffmpeg_time(value: str) -> float:
 
 
 def create_log_file() -> Path:
-    base = Path(os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")) / "media-convert" / "logs"
+    base = Path(os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")) / "shrinky" / "logs"
     base.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return base / f"convert-{stamp}.log"
@@ -696,7 +696,7 @@ def run_auto_video(options: EncodeOptions, media: MediaInfo, ctx: Optional[Progr
     if ctx is not None:
         ctx.duration = media.duration
 
-    with tempfile.TemporaryDirectory(prefix="media-convert-pass-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="shrinky-pass-") as temp_dir:
         for attempt in range(1, max_attempts + 1):
             attempts = attempt
             passlog = passlog_prefix(temp_dir, attempt)
@@ -855,7 +855,7 @@ def preview_commands(options: EncodeOptions, media: MediaInfo) -> List[str]:
 
     video_kbps, audio_kbps = initial_auto_budgets(options, media)
     if kind == "video":
-        preview_passlog = "/tmp/media-convert-preview"
+        preview_passlog = "/tmp/shrinky-preview"
         cmd1 = build_video_encode_command(
             options,
             media,
@@ -1746,7 +1746,7 @@ def draw_tui(stdscr: "curses._CursesWindow", state: TuiState, selected_key: Opti
     stdscr.clear()
     height, width = stdscr.getmaxyx()
 
-    title = "Media Convert"
+    title = "Shrinky"
     try:
         stdscr.addnstr(0, 1, title, width - 2, curses.A_BOLD | color(COLOR_HEADER))
         help_line = "↑↓ move · Enter edit/browse · ←→ cycle · Space fold · C convert · Q quit"
@@ -1906,7 +1906,7 @@ def trigger_convert(stdscr: "curses._CursesWindow", state: TuiState) -> None:
         except Exception as exc:  # noqa: BLE001
             result_box["error"] = exc
 
-    log_path.write_text(f"media-convert log {datetime.now().isoformat()}\n", encoding="utf-8")
+    log_path.write_text(f"shrinky log {datetime.now().isoformat()}\n", encoding="utf-8")
     log_tail.append(f"started at {datetime.now().strftime('%H:%M:%S')}")
 
     state.message = f"Converting… (Q to cancel)  log: {log_path}"
@@ -2041,7 +2041,7 @@ def run_tui(stdscr: "curses._CursesWindow") -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Terminal media converter with manual controls and target-size automation."
+        description="Shrinky — terminal media shrinker."
     )
     parser.add_argument("--tui", action="store_true", help="Launch the curses TUI.")
     parser.add_argument("--input", type=Path, help="Input media file.")

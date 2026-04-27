@@ -1,20 +1,17 @@
-# Media Convert
+# Shrinky
 
-`media-convert` is a terminal media conversion tool backed by `ffmpeg` and `ffprobe`.
+Terminal media shrinker.
 
-Location:
+Backed by `ffmpeg` and `ffprobe`. Hits a target size or runs a manual encode, all from a TUI.
 
-- app: `/Users/rafaelbm/Dev/AI/media-convert-tool/app.py`
-- launcher: `/Users/rafaelbm/.local/bin/media-convert`
-
-Run:
+## Run
 
 ```bash
-media-convert
+shrinky
 ```
 
-Help:
+## Help
 
 ```bash
-media-convert --help
+shrinky --help
 ```

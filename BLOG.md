@@ -1,6 +1,6 @@
-# Media Convert — Blog Sketch
+# Shrinky — Blog Sketch
 
-Working notes for a blog post about `media-convert`, a small terminal media
+Working notes for a blog post about `shrinky`, a small terminal media
 converter built on top of `ffmpeg` and `ffprobe`. Use this as a skeleton —
 fill in voice, screenshots, anecdotes, and benchmarks where marked `[TODO]`.
 
@@ -8,7 +8,7 @@ fill in voice, screenshots, anecdotes, and benchmarks where marked `[TODO]`.
 
 ## Suggested titles
 
-- *"Media Convert: a 1,000-line terminal app that hits a target file size on the first try"*
+- *"Shrinky: a 1,000-line terminal app that hits a target file size on the first try"*
 - *"I built a curses TUI for ffmpeg so I'd stop googling the same flags"*
 - *"Auto-sizing video with two-pass ffmpeg, in under 1,000 lines of Python"*
 
@@ -25,7 +25,7 @@ a bitrate that *looks* right, encoding for two minutes, finding out the
 output is 11.4 MB, tweaking, re-encoding, repeat.
 
 Most GUI converters either hide ffmpeg entirely or expose every knob with
-no opinion. `media-convert` sits in between: a small terminal app that
+no opinion. `shrinky` sits in between: a small terminal app that
 either does the size math for you, or gets out of the way when you want
 manual control.
 
@@ -151,7 +151,7 @@ The naïve approach is `bitrate = target_size / duration`. That misses
 twice: container overhead, and the fact that a constant-bitrate target
 with a single pass produces wide variance.
 
-What `media-convert` does:
+What `shrinky` does:
 
 ```
 target_bytes = target_mb * 1_000_000
@@ -201,8 +201,8 @@ Audio bitrate defaults to a sensible value per codec (96 for `.opus`,
 
 ```bash
 git clone <repo>
-cd media-convert-tool
-ln -s "$PWD/app.py" ~/.local/bin/media-convert
+cd shrinky
+ln -s "$PWD/app.py" ~/.local/bin/shrinky
 chmod +x app.py
 ```
 
@@ -212,7 +212,7 @@ startup and exits with a clear error if either is missing.
 ### TUI: shrink a video to 10 MB
 
 ```bash
-media-convert
+shrinky
 ```
 
 Drop into the curses interface. If the current directory has exactly one
@@ -224,7 +224,7 @@ the result.
 ### CLI: same thing, scriptable
 
 ```bash
-media-convert \
+shrinky \
   --input lecture.mov \
   --output lecture_10mb.mp4 \
   --mode auto_size \
@@ -234,7 +234,7 @@ media-convert \
 ### Manual encode with explicit knobs
 
 ```bash
-media-convert \
+shrinky \
   --input source.mov \
   --output out.mp4 \
   --mode manual \
@@ -248,7 +248,7 @@ Height is derived to keep aspect ratio (`scale=1280:-2`).
 ### Audio extraction
 
 ```bash
-media-convert \
+shrinky \
   --input lecture.mp4 \
   --output lecture.mp3 \
   --mode auto_size \
@@ -260,7 +260,7 @@ Output extension drives codec and container.
 ### Dry run — see the command without encoding
 
 ```bash
-media-convert --input in.mov --output out.mp4 --dry-run
+shrinky --input in.mov --output out.mp4 --dry-run
 ```
 
 Useful for double-checking the assembled `ffmpeg` invocation, or for
@@ -269,7 +269,7 @@ copy-pasting it into a script.
 ### Don't overwrite
 
 ```bash
-media-convert ... --no-overwrite
+shrinky ... --no-overwrite
 ```
 
 Errors instead of clobbering an existing output.
