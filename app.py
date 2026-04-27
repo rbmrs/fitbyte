@@ -7,6 +7,7 @@ import json
 import math
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,14 @@ AUTO_SIZE_AUDIO_UNSUPPORTED_EXTS = {".wav", ".flac"}
 
 class ConversionError(RuntimeError):
     pass
+
+
+def ensure_dependencies() -> None:
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
+    if missing:
+        raise ConversionError(
+            f"Required tool(s) not found on PATH: {', '.join(missing)}. Install ffmpeg (which bundles ffprobe)."
+        )
 
 
 @dataclass
@@ -332,10 +341,11 @@ def validate_options(options: EncodeOptions, media: MediaInfo) -> None:
     elif options.mode != "manual":
         raise ConversionError(f"Unsupported mode: {options.mode}")
 
-    if options.video_bitrate_kbps and options.crf is not None and options.mode == "manual":
-        options.crf = None
-
     if options.mode == "manual" and out_kind == "video":
+        if options.video_bitrate_kbps is not None and options.crf is not None:
+            raise ConversionError(
+                "Manual mode accepts either video bitrate or CRF, not both. Clear one of them."
+            )
         if options.video_bitrate_kbps is None and options.crf is None:
             options.crf = 23
 
@@ -925,9 +935,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fps", type=float)
     parser.add_argument("--video-bitrate-kbps", type=int)
     parser.add_argument("--audio-bitrate-kbps", type=int)
-    parser.add_argument("--crf", type=int, default=23)
+    parser.add_argument("--crf", type=int, default=None)
     parser.add_argument("--preset", choices=PRESET_OPTIONS, default="slow")
     parser.add_argument("--no-audio", action="store_true", help="Strip audio from the output.")
+    parser.add_argument("--no-overwrite", action="store_true", help="Fail instead of overwriting an existing output file.")
     parser.add_argument("--dry-run", action="store_true", help="Print the initial ffmpeg command(s) without converting.")
     return parser
 
@@ -948,9 +959,9 @@ def options_from_args(args: argparse.Namespace) -> EncodeOptions:
         height=args.height,
         fps=args.fps,
         video_bitrate_kbps=args.video_bitrate_kbps,
-        crf=None if args.video_bitrate_kbps else args.crf,
+        crf=args.crf,
         preset=args.preset,
-        overwrite=True,
+        overwrite=not args.no_overwrite,
     )
 
 
@@ -973,6 +984,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(effective_argv)
     wants_tui = args.tui or len(effective_argv) == 0
     try:
+        ensure_dependencies()
         if wants_tui:
             curses.wrapper(run_tui)
             return 0
