@@ -17,7 +17,8 @@ shrinky
 ## macOS prototype
 
 ```bash
-swift run Shrinky
+scripts/build_macos_app.sh
+open .build/debug/Shrinky.app
 ```
 
 Set `SHRINKY_BACKEND=/path/to/app.py` if you launch the app outside the repo.

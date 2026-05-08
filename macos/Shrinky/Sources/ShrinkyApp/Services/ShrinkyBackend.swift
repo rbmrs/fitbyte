@@ -79,6 +79,7 @@ actor ShrinkyBackend {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             process.arguments = processArguments
+            process.environment = Self.processEnvironment()
 
             let stdout = Pipe()
             let stderr = Pipe()
@@ -127,6 +128,7 @@ actor ShrinkyBackend {
                     let process = Process()
                     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
                     process.arguments = processArguments
+                    process.environment = Self.processEnvironment()
 
                     let stdout = Pipe()
                     let stderr = Pipe()
@@ -188,6 +190,16 @@ actor ShrinkyBackend {
         ].compactMap { $0 }
 
         return candidates.first { fileManager.fileExists(atPath: $0.path) }
+    }
+
+    private static func processEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let currentPath = environment["PATH"] ?? ""
+        let existingPaths = currentPath.split(separator: ":").map(String.init)
+        let commonToolPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        let mergedPaths = existingPaths + commonToolPaths.filter { !existingPaths.contains($0) }
+        environment["PATH"] = mergedPaths.joined(separator: ":")
+        return environment
     }
 }
 
