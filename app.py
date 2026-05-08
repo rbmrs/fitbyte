@@ -16,7 +16,7 @@ import textwrap
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
@@ -473,6 +473,21 @@ def parse_optional_float(raw_value: str, label: str) -> Optional[float]:
     return parsed
 
 
+def require_positive_number(value: Optional[float], label: str) -> None:
+    if value is not None and value <= 0:
+        raise ConversionError(f"{label} must be greater than zero.")
+
+
+def validate_numeric_options(options: EncodeOptions) -> None:
+    require_positive_number(options.target_size_mb, "Target size MB")
+    require_positive_number(options.audio_bitrate_kbps, "Audio kbps")
+    require_positive_number(options.width, "Width")
+    require_positive_number(options.height, "Height")
+    require_positive_number(options.fps, "FPS")
+    require_positive_number(options.video_bitrate_kbps, "Video kbps")
+    require_positive_number(options.crf, "CRF")
+
+
 def video_codec_for_ext(ext: str) -> str:
     if ext in VIDEO_OUTPUT_EXTS:
         return "libx264"
@@ -526,6 +541,7 @@ def validate_options(options: EncodeOptions, media: MediaInfo) -> None:
         raise ConversionError(f"Input file does not exist: {options.input_path}")
     if options.input_path.resolve() == options.output_path.resolve():
         raise ConversionError("Input and output paths must be different.")
+    validate_numeric_options(options)
     out_kind = output_kind(options.output_path)
     ext = options.output_path.suffix.lower()
 
@@ -570,6 +586,12 @@ def validate_options(options: EncodeOptions, media: MediaInfo) -> None:
 
 def passlog_prefix(base_dir: str, attempt: int) -> str:
     return os.path.join(base_dir, f"ffmpeg2pass-{attempt}")
+
+
+def internal_attempt_options(options: EncodeOptions) -> EncodeOptions:
+    if options.overwrite:
+        return options
+    return replace(options, overwrite=True)
 
 
 def build_video_encode_command(
@@ -689,6 +711,7 @@ def scale_bitrate(current_kbps: int, target_bytes: int, actual_bytes: int, reduc
 def run_auto_video(options: EncodeOptions, media: MediaInfo, ctx: Optional[ProgressContext] = None) -> ConversionResult:
     target_bytes = int(options.target_size_mb * 1_000_000)
     video_kbps, audio_kbps = initial_auto_budgets(options, media)
+    attempt_options = internal_attempt_options(options)
     commands: List[List[str]] = []
     attempts = 0
 
@@ -701,7 +724,7 @@ def run_auto_video(options: EncodeOptions, media: MediaInfo, ctx: Optional[Progr
             attempts = attempt
             passlog = passlog_prefix(temp_dir, attempt)
             cmd1 = build_video_encode_command(
-                options,
+                attempt_options,
                 media,
                 video_kbps=video_kbps,
                 audio_kbps=audio_kbps,
@@ -710,7 +733,7 @@ def run_auto_video(options: EncodeOptions, media: MediaInfo, ctx: Optional[Progr
                 output_override=os.devnull,
             )
             cmd2 = build_video_encode_command(
-                options,
+                attempt_options,
                 media,
                 video_kbps=video_kbps,
                 audio_kbps=audio_kbps,
@@ -762,6 +785,7 @@ def run_auto_video(options: EncodeOptions, media: MediaInfo, ctx: Optional[Progr
 def run_auto_audio(options: EncodeOptions, media: MediaInfo, ctx: Optional[ProgressContext] = None) -> ConversionResult:
     target_bytes = int(options.target_size_mb * 1_000_000)
     _, audio_kbps = initial_auto_budgets(options, media)
+    attempt_options = internal_attempt_options(options)
     commands: List[List[str]] = []
     attempts = 0
 
@@ -771,7 +795,7 @@ def run_auto_audio(options: EncodeOptions, media: MediaInfo, ctx: Optional[Progr
 
     for attempt in range(1, max_attempts + 1):
         attempts = attempt
-        cmd = build_audio_encode_command(options, audio_kbps=audio_kbps)
+        cmd = build_audio_encode_command(attempt_options, audio_kbps=audio_kbps)
         commands.append(cmd)
         if ctx is not None:
             ctx.phase = f"attempt {attempt}/{max_attempts}"
@@ -854,10 +878,11 @@ def preview_commands(options: EncodeOptions, media: MediaInfo) -> List[str]:
         return [shlex.join(cmd)]
 
     video_kbps, audio_kbps = initial_auto_budgets(options, media)
+    attempt_options = internal_attempt_options(options)
     if kind == "video":
         preview_passlog = "/tmp/shrinky-preview"
         cmd1 = build_video_encode_command(
-            options,
+            attempt_options,
             media,
             video_kbps=video_kbps,
             audio_kbps=audio_kbps,
@@ -866,7 +891,7 @@ def preview_commands(options: EncodeOptions, media: MediaInfo) -> List[str]:
             output_override=os.devnull,
         )
         cmd2 = build_video_encode_command(
-            options,
+            attempt_options,
             media,
             video_kbps=video_kbps,
             audio_kbps=audio_kbps,
@@ -879,12 +904,58 @@ def preview_commands(options: EncodeOptions, media: MediaInfo) -> List[str]:
             shlex.join(cmd2),
             "auto-size may rerun with adjusted bitrate if the first attempt misses the target",
         ]
-    cmd = build_audio_encode_command(options, audio_kbps=audio_kbps)
+    cmd = build_audio_encode_command(attempt_options, audio_kbps=audio_kbps)
     return [
         f"initial audio budget: {audio_kbps} kbps",
         shlex.join(cmd),
         "auto-size may rerun with adjusted bitrate if the first attempt misses the target",
     ]
+
+
+def media_info_to_dict(media: MediaInfo) -> dict:
+    return {
+        "path": str(media.path),
+        "duration": media.duration,
+        "size_bytes": media.size_bytes,
+        "has_video": media.has_video,
+        "has_audio": media.has_audio,
+        "width": media.width,
+        "height": media.height,
+        "fps": media.fps,
+        "video_codec": media.video_codec,
+        "audio_codec": media.audio_codec,
+    }
+
+
+def conversion_result_to_dict(result: ConversionResult) -> dict:
+    return {
+        "output_path": str(result.output_path),
+        "size_bytes": result.size_bytes,
+        "duration": result.duration,
+        "attempts": result.attempts,
+        "mode": result.mode,
+        "commands": result.commands,
+        "command_lines": [shlex.join(command) for command in result.commands],
+    }
+
+
+def estimate_to_dict(options: EncodeOptions, media: MediaInfo) -> dict:
+    if options.mode != "auto_size":
+        return {
+            "mode": options.mode,
+            "message": "manual mode; size depends on encode parameters",
+        }
+    video_kbps, audio_kbps = initial_auto_budgets(options, media)
+    return {
+        "mode": options.mode,
+        "target_size_mb": options.target_size_mb,
+        "video_kbps": video_kbps,
+        "audio_kbps": audio_kbps,
+    }
+
+
+def emit_json(payload: dict) -> None:
+    print(json.dumps(payload, sort_keys=True), flush=True)
 
 
 def print_result(result: ConversionResult) -> None:
@@ -2043,6 +2114,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Shrinky — terminal media shrinker."
     )
+    json_group = parser.add_mutually_exclusive_group()
     parser.add_argument("--tui", action="store_true", help="Launch the curses TUI.")
     parser.add_argument("--input", type=Path, help="Input media file.")
     parser.add_argument("--output", type=Path, help="Output media file.")
@@ -2058,6 +2130,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-audio", action="store_true", help="Strip audio from the output.")
     parser.add_argument("--no-overwrite", action="store_true", help="Fail instead of overwriting an existing output file.")
     parser.add_argument("--dry-run", action="store_true", help="Print the initial ffmpeg command(s) without converting.")
+    json_group.add_argument("--probe-json", action="store_true", help="Print probed input metadata as JSON.")
+    json_group.add_argument("--preview-json", action="store_true", help="Print validation, estimate, and command preview as JSON.")
+    json_group.add_argument("--progress-json", action="store_true", help="Convert and print progress events as JSON lines.")
     return parser
 
 
@@ -2083,7 +2158,74 @@ def options_from_args(args: argparse.Namespace) -> EncodeOptions:
     )
 
 
+def wants_json_output(args: argparse.Namespace) -> bool:
+    return bool(args.probe_json or args.preview_json or args.progress_json)
+
+
+def run_probe_json(args: argparse.Namespace) -> int:
+    if not args.input:
+        raise ConversionError("--input is required for --probe-json.")
+    input_path = args.input.expanduser()
+    media = probe_media(input_path)
+    emit_json(
+        {
+            "ok": True,
+            "media": media_info_to_dict(media),
+            "suggested_output": str(suggest_output_path(input_path, media)),
+        }
+    )
+    return 0
+
+
+def run_preview_json(args: argparse.Namespace) -> int:
+    options = options_from_args(args)
+    media = probe_media(options.input_path)
+    validate_options(options, media)
+    emit_json(
+        {
+            "ok": True,
+            "media": media_info_to_dict(media),
+            "output_kind": output_kind(options.output_path),
+            "estimate": estimate_to_dict(options, media),
+            "commands": preview_commands(options, media),
+        }
+    )
+    return 0
+
+
+def run_progress_json(args: argparse.Namespace) -> int:
+    if args.dry_run:
+        raise ConversionError("--progress-json cannot be combined with --dry-run.")
+    options = options_from_args(args)
+    log_path = create_log_file()
+    log_path.write_text(f"shrinky json log {datetime.now().isoformat()}\n", encoding="utf-8")
+
+    def on_progress(update: ProgressUpdate) -> None:
+        emit_json(
+            {
+                "event": "progress",
+                "ok": True,
+                "phase": update.phase,
+                "fraction": update.fraction,
+                "speed": update.speed,
+                "out_time_seconds": update.out_time_seconds,
+            }
+        )
+
+    emit_json({"event": "started", "ok": True, "log_path": str(log_path)})
+    ctx = ProgressContext(log_path=log_path, callback=on_progress)
+    result = run_conversion(options, ctx)
+    emit_json({"event": "complete", "ok": True, "result": conversion_result_to_dict(result)})
+    return 0
+
+
 def run_cli(args: argparse.Namespace) -> int:
+    if args.probe_json:
+        return run_probe_json(args)
+    if args.preview_json:
+        return run_preview_json(args)
+    if args.progress_json:
+        return run_progress_json(args)
     options = options_from_args(args)
     media = probe_media(options.input_path)
     validate_options(options, media)
@@ -2108,10 +2250,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         return run_cli(args)
     except ConversionError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        if wants_json_output(args):
+            emit_json({"event": "error", "ok": False, "error": str(exc)})
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\nCanceled.", file=sys.stderr)
+        if wants_json_output(args):
+            emit_json({"event": "canceled", "ok": False, "error": "Canceled."})
+        else:
+            print("\nCanceled.", file=sys.stderr)
         return 130
 
 
