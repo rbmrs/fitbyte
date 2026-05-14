@@ -36,4 +36,4 @@ Set `SHRINKY_BACKEND=/path/to/app.py` if launching outside the repo.
 
 ## Built with Claude Code
 
-Shrinky was built agentically — designed, written, and iterated on with [Claude Code](https://claude.com/claude-code) as the primary author. ~1,000 lines of Python, no dependencies beyond `ffmpeg`.
+Shrinky was built agentically — designed, written, and iterated on with [Claude Code](https://claude.com/claude-code) as the primary author.
