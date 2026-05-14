@@ -287,9 +287,10 @@ Errors instead of clobbering an existing output.
   every input. The 5-attempt cap was paranoid — 3 would do.
 - Auto-size for `.webm` / VP9 would be a nice add. Currently h264 only
   for video.
-- No tests. Easy targets exist: `validate_options`,
-  `initial_auto_budgets`, `scale_bitrate`, the command builders are all
-  pure.
+- Tests landed late. `tests/test_app.py` covers validation and the
+  no-overwrite / auto-retry paths, but the pure functions that would be
+  easiest to pin down — `initial_auto_budgets`, `scale_bitrate`, the
+  command builders — are still uncovered. Should have started there.
 
 ---
 
