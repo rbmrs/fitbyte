@@ -1,30 +1,39 @@
 # Shrinky
 
-Terminal media shrinker.
+Terminal media shrinker. Hit a target file size — or run a manual encode — without googling `ffmpeg` flags.
 
-Backed by `ffmpeg` and `ffprobe`. Hits a target size or runs a manual encode, all from a TUI.
-
-## Screenshot
+Backed by `ffmpeg` and `ffprobe`, driven from a curses TUI or a scriptable CLI.
 
 ![Shrinky TUI screenshot](docs/shrinky-tui.png)
 
-## Run
+## Install
+
+Requires Python 3.8+ and `ffmpeg` (with `ffprobe`) on `PATH`.
 
 ```bash
-shrinky
+git clone https://github.com/rbmrs/shrinky.git
+cd shrinky
+ln -s "$PWD/app.py" ~/.local/bin/shrinky
 ```
 
-## macOS prototype
+## Use
+
+```bash
+shrinky              # launch the TUI
+shrinky --help       # CLI flags for scripts and pipelines
+```
+
+## macOS app
+
+An experimental native shell lives in `macos/`:
 
 ```bash
 scripts/build_macos_app.sh
 open .build/debug/Shrinky.app
 ```
 
-Set `SHRINKY_BACKEND=/path/to/app.py` if you launch the app outside the repo.
+Set `SHRINKY_BACKEND=/path/to/app.py` if launching outside the repo.
 
-## Help
+## Built with Claude Code
 
-```bash
-shrinky --help
-```
+Shrinky was built agentically — designed, written, and iterated on with [Claude Code](https://claude.com/claude-code) as the primary author. ~1,000 lines of Python, no dependencies beyond `ffmpeg`.
