@@ -1,0 +1,86 @@
+name: Release beta build
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-beta
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next beta version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base="0.1.0"
+          # Count existing beta releases for this base, next index = count + 1.
+          existing=$(gh release list --limit 200 \
+            --json tagName --jq '.[].tagName' \
+            | grep -c "^v${base}-beta\." || true)
+          next=$((existing + 1))
+          version="${base}-beta.${next}"
+          tag="v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Next release: ${tag}"
+
+      - name: Build macOS app
+        run: |
+          scripts/build_macos_app.sh release "${{ steps.version.outputs.version }}"
+
+      - name: Package app
+        id: package
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          app_dir=".build/release/Shrinky.app"
+          zip_name="Shrinky-${version}-macos.zip"
+          ditto -c -k --keepParent "$app_dir" "$zip_name"
+          echo "zip=${zip_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        id: notes
+        run: |
+          # Most recent existing release tag, if any.
+          prev=$(git tag --list 'v0.1.0-beta.*' --sort=-creatordate | head -n1)
+          {
+            echo "## What's new"
+            echo
+            if [ -z "$prev" ]; then
+              echo "Initial beta build."
+              echo
+              echo "Commits in this build:"
+              git log --pretty='- %s (%h)' -n 20
+            else
+              echo "Changes since \`${prev}\`:"
+              echo
+              git log --pretty='- %s (%h)' "${prev}..HEAD"
+            fi
+            echo
+            echo "---"
+            echo "Unsigned beta build. On first launch, right-click \`Shrinky.app\` and choose **Open** to bypass Gatekeeper."
+          } > release_notes.md
+          cat release_notes.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ steps.package.outputs.zip }}" \
+            --title "Shrinky ${{ steps.version.outputs.version }}" \
+            --notes-file release_notes.md \
+            --prerelease \
+            --target "${{ github.sha }}"

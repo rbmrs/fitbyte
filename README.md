@@ -23,9 +23,16 @@ shrinky              # launch the TUI
 shrinky --help       # CLI flags for scripts and pipelines
 ```
 
-## macOS app
+## macOS app (beta)
 
-An experimental native shell lives in `macos/`:
+A native macOS shell lives in `macos/`. Prebuilt beta builds are on the
+[Releases page](https://github.com/rbmrs/shrinky/releases) — each push to
+`main` ships a new `Shrinky-<version>-macos.zip`.
+
+The builds are unsigned: on first launch, right-click `Shrinky.app` and
+choose **Open** to get past Gatekeeper.
+
+To build it yourself:
 
 ```bash
 scripts/build_macos_app.sh
