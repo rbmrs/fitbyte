@@ -300,8 +300,8 @@ Errors instead of clobbering an existing output.
 workflow because this tool exists. Numbers if you have them ("I used to
 spend ~10 min per share-a-video task; now it's 30 seconds").
 
-Source: `[TODO insert repo URL]`. ~1,000 lines of Python, MIT, no
-dependencies beyond `ffmpeg` itself.
+Source: <https://github.com/rbmrs/shrinky>. ~1,000 lines of Python, MIT,
+no dependencies beyond `ffmpeg` itself.
 
 ---
 
