@@ -10,6 +10,14 @@ Backed by `ffmpeg` and `ffprobe`, driven from a curses TUI or a scriptable CLI.
   <img alt="Shrinky TUI screenshot" src="docs/shrinky-tui-light.png">
 </picture>
 
+While a conversion is running, Shrinky streams progress, pass info, and the live `ffmpeg` command:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/shrinky-tui-converting-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/shrinky-tui-converting-light.png">
+  <img alt="Shrinky TUI converting" src="docs/shrinky-tui-converting-light.png">
+</picture>
+
 ## Install
 
 Requires Python 3.8+ and `ffmpeg` (with `ffprobe`) on `PATH`.
