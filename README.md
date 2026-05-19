@@ -1,10 +1,12 @@
 <!-- expander:v1 -->
 
+<!-- expander:image-slot name="hero" -->
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/shrinky-tui-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/shrinky-tui-light.png">
   <img alt="Shrinky TUI screenshot" src="docs/shrinky-tui-light.png">
 </picture>
+<!-- /expander:image-slot -->
 
 ## The 10 MB ceiling
 
@@ -72,6 +74,10 @@ video_kbps   = total_kbps - audio_kbps
 
 The 1.5% headroom on `usable_bytes` is the container budget — give the headers somewhere to live. Then a two-pass `libx264` encode does the work: `-pass 1` writes its stats to `/dev/null`, `-pass 2` uses those stats to spread bits across the timeline so the constant *average* bitrate produces a near-constant *file size*.
 
+<!-- expander:image-slot name="how-it-works" placeholder -->
+![TODO: how-it-works diagram](docs/TODO-how-it-works.png)
+<!-- /expander:image-slot -->
+
 After pass 2, Shrinky measures the actual output. If it landed inside 96.5% to 100% of target, that's a hit — done. Otherwise, scale the bitrate by `target / actual` (re-applying the 0.985 safety margin) and rerun the two-pass. Up to five attempts. In practice it converges in one or two — the cap exists for paranoia more than for need.
 
 The 96.5% threshold isn't arbitrary. `libx264`'s VBV behaviour means asking it for exactly your target tends to overshoot by 1–3%. A 1.5% headroom on the ask consistently lands inside the budget on the first try for most inputs, and the iteration handles the rest.
@@ -103,6 +109,10 @@ There are three JSON output modes (`--probe-json`, `--preview-json`, `--progress
 Three things converged. First, the file-cap problem genuinely doesn't go away. Discord's 10 MB free-tier limit is the one that finally tipped me, but WhatsApp's 16 MB and Twitter's 512 MB sit on the same shelf. Every platform with a hard ceiling will, at some point, refuse a file you wanted to send. Solving that once and reusing the solution forever felt overdue.
 
 Second, the alternatives bothered me. Online converters are an ecosystem of ads, paywalls, and "fast-track" upsells, and they require you to upload your video to a stranger's box before they'll touch it. For anything personal — a recording, a clip with a friend in it, a screen capture of something private — that's a worse deal than the cap was.
+
+<!-- expander:image-slot name="why" placeholder -->
+![TODO: why diagram](docs/TODO-why.png)
+<!-- /expander:image-slot -->
 
 Third, I already live in a terminal. A GUI for this would be a context switch, and the kind of context switch that needs to be re-learned every time you haven't used the app for a month. A terminal app fits where I already am, scripts cleanly into shell loops, and survives `ssh`. The TUI on top of the CLI is the same idea twice — a curses front-end makes one-off encodes pleasant, and the flag interface makes batch jobs and pipelines just work.
 
