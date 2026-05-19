@@ -74,8 +74,12 @@ video_kbps   = total_kbps - audio_kbps
 
 The 1.5% headroom on `usable_bytes` is the container budget — give the headers somewhere to live. Then a two-pass `libx264` encode does the work: `-pass 1` writes its stats to `/dev/null`, `-pass 2` uses those stats to spread bits across the timeline so the constant *average* bitrate produces a near-constant *file size*.
 
-<!-- expander:image-slot name="how-it-works" placeholder -->
-![TODO: how-it-works diagram](docs/TODO-how-it-works.png)
+<!-- expander:image-slot name="how-it-works" -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/how-it-works-light.png">
+  <img alt="Shrinky TUI showing auto-size result: 10.59 MB source converted to 9.85 MB" src="docs/how-it-works-light.png">
+</picture>
 <!-- /expander:image-slot -->
 
 After pass 2, Shrinky measures the actual output. If it landed inside 96.5% to 100% of target, that's a hit — done. Otherwise, scale the bitrate by `target / actual` (re-applying the 0.985 safety margin) and rerun the two-pass. Up to five attempts. In practice it converges in one or two — the cap exists for paranoia more than for need.
@@ -110,8 +114,12 @@ Three things converged. First, the file-cap problem genuinely doesn't go away. D
 
 Second, the alternatives bothered me. Online converters are an ecosystem of ads, paywalls, and "fast-track" upsells, and they require you to upload your video to a stranger's box before they'll touch it. For anything personal — a recording, a clip with a friend in it, a screen capture of something private — that's a worse deal than the cap was.
 
-<!-- expander:image-slot name="why" placeholder -->
-![TODO: why diagram](docs/TODO-why.png)
+<!-- expander:image-slot name="why" -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/why-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/why-light.png">
+  <img alt="Shrinky TUI converting a video" src="docs/why-light.png">
+</picture>
 <!-- /expander:image-slot -->
 
 Third, I already live in a terminal. A GUI for this would be a context switch, and the kind of context switch that needs to be re-learned every time you haven't used the app for a month. A terminal app fits where I already am, scripts cleanly into shell loops, and survives `ssh`. The TUI on top of the CLI is the same idea twice — a curses front-end makes one-off encodes pleasant, and the flag interface makes batch jobs and pipelines just work.
