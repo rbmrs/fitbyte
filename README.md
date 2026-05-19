@@ -4,7 +4,11 @@ Terminal media shrinker. Hit a target file size — or run a manual encode — w
 
 Backed by `ffmpeg` and `ffprobe`, driven from a curses TUI or a scriptable CLI.
 
-![Shrinky TUI screenshot](docs/shrinky-tui.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/shrinky-tui-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/shrinky-tui-light.png">
+  <img alt="Shrinky TUI screenshot" src="docs/shrinky-tui-light.png">
+</picture>
 
 ## Install
 
