@@ -92,7 +92,7 @@ Audio-only outputs are simpler. No two-pass is needed — single-pass `libmp3lam
 
 Auto-size handles the size question, but most of the time you want to nudge other things too. The CLI flags group naturally by the question they answer.
 
-**How small?** `--target-size-mb`, a float, default 10.0. The whole point of the tool.
+**How small?** `--target-size-mb`, a float, default 10mb. The whole point of the tool.
 
 **How sharp?** `--width`, `--height`, and `--fps`. Set width alone and aspect ratio is preserved via `scale=W:-2` — the `-2` lets `libx264` pick a height divisible by two without you doing arithmetic. Lower resolution gives the encoder fewer pixels to allocate bits to, which usually means a sharper-looking result at the same target size.
 
