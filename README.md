@@ -1,9 +1,5 @@
 <!-- expander:image-slot name="hero" -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero/shrinky-tui-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/hero/shrinky-tui-light.png">
-  <img alt="Shrinky TUI screenshot" src="docs/images/hero/shrinky-tui-light.png">
-</picture>
+<img alt="Shrinky TUI screenshot" src="docs/images/hero/image.png">
 <!-- /expander:image-slot -->
 
 ## The 10 MB ceiling
