@@ -1,10 +1,8 @@
-<!-- expander:v1 -->
-
 <!-- expander:image-slot name="hero" -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/shrinky-tui-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/shrinky-tui-light.png">
-  <img alt="Shrinky TUI screenshot" src="docs/shrinky-tui-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero/shrinky-tui-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/hero/shrinky-tui-light.png">
+  <img alt="Shrinky TUI screenshot" src="docs/images/hero/shrinky-tui-light.png">
 </picture>
 <!-- /expander:image-slot -->
 
@@ -74,11 +72,11 @@ video_kbps   = total_kbps - audio_kbps
 
 The 1.5% headroom on `usable_bytes` is the container budget: give the headers somewhere to live. Then a two-pass `libx264` encode does the work: `-pass 1` writes its stats to `/dev/null`, `-pass 2` uses those stats to spread bits across the timeline so the constant *average* bitrate produces a near-constant *file size*.
 
-<!-- expander:image-slot name="how-it-works" -->
+<!-- expander:image-slot name="body-1" -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/how-it-works-light.png">
-  <img alt="Shrinky TUI showing auto-size result: 10.59 MB source converted to 9.85 MB" src="docs/how-it-works-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/1/how-it-works-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/1/how-it-works-light.png">
+  <img alt="Shrinky TUI showing auto-size result: 10.59 MB source converted to 9.85 MB" src="docs/images/1/how-it-works-light.png">
 </picture>
 <!-- /expander:image-slot -->
 
@@ -114,11 +112,11 @@ Three things converged. First, the file-cap problem genuinely doesn't go away. D
 
 Second, the alternatives bothered me. Online converters are an ecosystem of ads, paywalls, and "fast-track" upsells, and they require you to upload your video to a stranger's box before they'll touch it. For anything personal (a recording, a clip with a friend in it, a screen capture of something private), that's a worse deal than the cap was.
 
-<!-- expander:image-slot name="why" -->
+<!-- expander:image-slot name="body-2" -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/why-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/why-light.png">
-  <img alt="Shrinky TUI converting a video" src="docs/why-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/2/why-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/2/why-light.png">
+  <img alt="Shrinky TUI converting a video" src="docs/images/2/why-light.png">
 </picture>
 <!-- /expander:image-slot -->
 
@@ -155,3 +153,5 @@ Not for:
 ## Built with Claude Code
 
 This tool was designed, written, and iterated on with [Claude Code](https://claude.com/claude-code) as the primary author.
+
+<!-- expander:v1 -->
