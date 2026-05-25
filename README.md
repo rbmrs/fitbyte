@@ -1,5 +1,7 @@
 <!-- expander:image-slot name="hero" -->
-<img alt="Shrinky TUI screenshot" src="docs/images/hero/image.png">
+<!-- <img alt="Shrinky TUI screenshot" src="docs/images/hero/image.png"> -->
+<img width="1707" height="1031" alt="shrinky-hero2-thumb" src="https://github.com/user-attachments/assets/27dc7a36-a5dd-47d2-b140-6a1dc8fd5638" />
+
 <!-- /expander:image-slot -->
 
 ## The 10 MB ceiling
