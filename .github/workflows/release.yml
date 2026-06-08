@@ -3,6 +3,12 @@ name: Release beta build
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "RELEASES.md"
+      - "ARTICLE.md"
+      - "BLOG.md"
+      - "docs/**"
 
 permissions:
   contents: write

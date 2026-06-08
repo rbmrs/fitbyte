@@ -1,8 +1,16 @@
 # Shrinky
 
+[![Latest release](https://img.shields.io/github/v/release/rbmrs/shrinky?include_prereleases&label=download)](https://github.com/rbmrs/shrinky/releases)
+
 A terminal media shrinker. Give it an audio or video file and a target size, and it encodes an output that lands inside that budget. A single Python file with a curses TUI and a scriptable CLI; the only dependency is `ffmpeg`. Audio and video only — no images, PDFs, or archives.
 
 > Read the story behind it in [ARTICLE.md](ARTICLE.md).
+
+## Download
+
+The easiest way to try the macOS app is from the [Releases page](https://github.com/rbmrs/shrinky/releases). Download the latest `Shrinky-*-macos.zip`, unzip it, then right-click `Shrinky.app` and choose **Open** on first launch.
+
+The app is still a beta and unsigned. The terminal version remains available from source.
 
 ## Requirements
 
@@ -45,7 +53,7 @@ shrinky --help       # CLI flags for scripts and pipelines
 
 ## macOS app (beta)
 
-A native macOS shell lives in `macos/`. Prebuilt beta builds are on the [Releases page](https://github.com/rbmrs/shrinky/releases): each push to `main` ships a new `Shrinky-<version>-macos.zip`. The builds are unsigned — on first launch, right-click `Shrinky.app` and choose **Open** to get past Gatekeeper.
+A native macOS shell lives in `macos/`. Prebuilt beta builds are on the [Releases page](https://github.com/rbmrs/shrinky/releases): qualifying pushes to `main` ship a new `Shrinky-<version>-macos.zip`. See [RELEASES.md](RELEASES.md) for the release flow.
 
 Build it yourself:
 
