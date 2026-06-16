@@ -1,5 +1,9 @@
 <!-- article:image-slot name="hero" -->
-<img width="1600" height="900" alt="Shrinky — hit any size target" src="docs/images/hero/image.png">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero/image.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/hero/image.png">
+  <img width="1600" height="900" alt="Shrinky — hit any size target" src="docs/images/hero/image.png">
+</picture>
 <!-- /article:image-slot -->
 
 I kept running into the same wall, and the wall kept being Discord. The free tier caps uploads at 10 MB, and ten megabytes is nothing for a gameplay clip: a minute of decent-resolution recording sails past that ceiling before you've finished the highlight. So you bounce off the upload, alt-tab to a browser, and start hunting for a converter. Those browser tools are a tax. Either you pay to skip a queue, you pay to strip a watermark, or you let the page push four banner ads while it uploads your file to someone else's server. `ffmpeg` already does everything those converters do, locally, for free, with no telemetry. The catch is the flag-googling, and picking a bitrate that lands close to a target size is its own little algorithm I'd run from memory enough times to be tired of it. So I wrote the thing I kept wanting: Shrinky, a terminal media shrinker that does the size math for you.
