@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 @MainActor
-final class ShrinkyViewModel: ObservableObject {
+final class FitbyteViewModel: ObservableObject {
     @Published var settings = EncodeSettings()
     @Published var media: MediaInfo?
     @Published var preview: PreviewResponse?
@@ -15,13 +15,13 @@ final class ShrinkyViewModel: ObservableObject {
     @Published var isConverting = false
     @Published var backendReady = false
 
-    private let backend: ShrinkyBackend?
+    private let backend: FitbyteBackend?
     private var previewTask: Task<Void, Never>?
     private var conversionTask: Task<Void, Never>?
 
     init() {
         do {
-            self.backend = try ShrinkyBackend()
+            self.backend = try FitbyteBackend()
             self.backendReady = true
         } catch {
             self.backend = nil

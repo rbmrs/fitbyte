@@ -8,16 +8,16 @@ enum BackendError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .scriptNotFound:
-            "Could not find app.py. Set SHRINKY_BACKEND or run from the repository root."
+            "Could not find app.py. Set FITBYTE_BACKEND or run from the repository root."
         case .processFailed(let message):
             message
         case .invalidResponse:
-            "Shrinky returned an invalid response."
+            "Fitbyte returned an invalid response."
         }
     }
 }
 
-actor ShrinkyBackend {
+actor FitbyteBackend {
     private let decoder: JSONDecoder
     private let scriptURL: URL
 
@@ -175,7 +175,7 @@ actor ShrinkyBackend {
 
     private static func locateBackendScript() -> URL? {
         let fileManager = FileManager.default
-        if let explicit = ProcessInfo.processInfo.environment["SHRINKY_BACKEND"] {
+        if let explicit = ProcessInfo.processInfo.environment["FITBYTE_BACKEND"] {
             let url = URL(fileURLWithPath: explicit)
             if fileManager.fileExists(atPath: url.path) {
                 return url

@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "ShrinkyWorkspace",
+    name: "FitbyteWorkspace",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .executable(name: "Shrinky", targets: ["ShrinkyApp"]),
+        .executable(name: "Fitbyte", targets: ["FitbyteApp"]),
     ],
     targets: [
         .executableTarget(
-            name: "ShrinkyApp",
-            path: "macos/Shrinky/Sources/ShrinkyApp"
+            name: "FitbyteApp",
+            path: "macos/Fitbyte/Sources/FitbyteApp"
         ),
     ]
 )

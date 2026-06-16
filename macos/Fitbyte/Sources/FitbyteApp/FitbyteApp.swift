@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ShrinkyApp: App {
+struct FitbyteApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

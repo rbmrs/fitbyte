@@ -51,8 +51,8 @@ jobs:
         id: package
         run: |
           version="${{ steps.version.outputs.version }}"
-          app_dir=".build/release/Shrinky.app"
-          zip_name="Shrinky-${version}-macos.zip"
+          app_dir=".build/release/Fitbyte.app"
+          zip_name="Fitbyte-${version}-macos.zip"
           ditto -c -k --keepParent "$app_dir" "$zip_name"
           echo "zip=${zip_name}" >> "$GITHUB_OUTPUT"
 
@@ -76,7 +76,7 @@ jobs:
             fi
             echo
             echo "---"
-            echo "Unsigned beta build. On first launch, right-click \`Shrinky.app\` and choose **Open** to bypass Gatekeeper."
+            echo "Unsigned beta build. On first launch, right-click \`Fitbyte.app\` and choose **Open** to bypass Gatekeeper."
           } > release_notes.md
           cat release_notes.md
 
@@ -86,7 +86,7 @@ jobs:
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
             "${{ steps.package.outputs.zip }}" \
-            --title "Shrinky ${{ steps.version.outputs.version }}" \
+            --title "Fitbyte ${{ steps.version.outputs.version }}" \
             --notes-file release_notes.md \
             --prerelease \
             --target "${{ github.sha }}"

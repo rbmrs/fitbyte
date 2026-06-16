@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @StateObject private var viewModel = ShrinkyViewModel()
+    @StateObject private var viewModel = FitbyteViewModel()
     @State private var inputDropTargeted = false
 
     var body: some View {
@@ -29,7 +29,7 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Text("Shrinky")
+            Text("Fitbyte")
                 .font(.title3.weight(.semibold))
             Circle()
                 .fill(viewModel.backendReady ? Color.green : Color.orange)

@@ -1,6 +1,6 @@
-# Shrinky — Blog Sketch
+# Fitbyte — Blog Sketch
 
-Working notes for a blog post about `shrinky`, a small terminal media
+Working notes for a blog post about `fitbyte`, a small terminal media
 converter built on top of `ffmpeg` and `ffprobe`. Use this as a skeleton —
 fill in voice, screenshots, anecdotes, and benchmarks where marked `[TODO]`.
 
@@ -8,7 +8,7 @@ fill in voice, screenshots, anecdotes, and benchmarks where marked `[TODO]`.
 
 ## Suggested titles
 
-- *"Shrinky: a 1,000-line terminal app that hits a target file size on the first try"*
+- *"Fitbyte: a 1,000-line terminal app that hits a target file size on the first try"*
 - *"I built a curses TUI for ffmpeg so I'd stop googling the same flags"*
 - *"Auto-sizing video with two-pass ffmpeg, in under 1,000 lines of Python"*
 
@@ -25,7 +25,7 @@ a bitrate that *looks* right, encoding for two minutes, finding out the
 output is 11.4 MB, tweaking, re-encoding, repeat.
 
 Most GUI converters either hide ffmpeg entirely or expose every knob with
-no opinion. `shrinky` sits in between: a small terminal app that
+no opinion. `fitbyte` sits in between: a small terminal app that
 either does the size math for you, or gets out of the way when you want
 manual control.
 
@@ -151,7 +151,7 @@ The naïve approach is `bitrate = target_size / duration`. That misses
 twice: container overhead, and the fact that a constant-bitrate target
 with a single pass produces wide variance.
 
-What `shrinky` does:
+What `fitbyte` does:
 
 ```
 target_bytes = target_mb * 1_000_000
@@ -201,8 +201,8 @@ Audio bitrate defaults to a sensible value per codec (96 for `.opus`,
 
 ```bash
 git clone <repo>
-cd shrinky
-ln -s "$PWD/app.py" ~/.local/bin/shrinky
+cd fitbyte
+ln -s "$PWD/app.py" ~/.local/bin/fitbyte
 chmod +x app.py
 ```
 
@@ -212,7 +212,7 @@ startup and exits with a clear error if either is missing.
 ### TUI: shrink a video to 10 MB
 
 ```bash
-shrinky
+fitbyte
 ```
 
 Drop into the curses interface. If the current directory has exactly one
@@ -224,7 +224,7 @@ the result.
 ### CLI: same thing, scriptable
 
 ```bash
-shrinky \
+fitbyte \
   --input lecture.mov \
   --output lecture_10mb.mp4 \
   --mode auto_size \
@@ -234,7 +234,7 @@ shrinky \
 ### Manual encode with explicit knobs
 
 ```bash
-shrinky \
+fitbyte \
   --input source.mov \
   --output out.mp4 \
   --mode manual \
@@ -248,7 +248,7 @@ Height is derived to keep aspect ratio (`scale=1280:-2`).
 ### Audio extraction
 
 ```bash
-shrinky \
+fitbyte \
   --input lecture.mp4 \
   --output lecture.mp3 \
   --mode auto_size \
@@ -260,7 +260,7 @@ Output extension drives codec and container.
 ### Dry run — see the command without encoding
 
 ```bash
-shrinky --input in.mov --output out.mp4 --dry-run
+fitbyte --input in.mov --output out.mp4 --dry-run
 ```
 
 Useful for double-checking the assembled `ffmpeg` invocation, or for
@@ -269,7 +269,7 @@ copy-pasting it into a script.
 ### Don't overwrite
 
 ```bash
-shrinky ... --no-overwrite
+fitbyte ... --no-overwrite
 ```
 
 Errors instead of clobbering an existing output.
@@ -300,7 +300,7 @@ Errors instead of clobbering an existing output.
 workflow because this tool exists. Numbers if you have them ("I used to
 spend ~10 min per share-a-video task; now it's 30 seconds").
 
-Source: <https://github.com/rbmrs/shrinky>. ~1,000 lines of Python, MIT,
+Source: <https://github.com/rbmrs/fitbyte>. ~1,000 lines of Python, MIT,
 no dependencies beyond `ffmpeg` itself.
 
 ---
