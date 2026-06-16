@@ -1,7 +1,5 @@
 <!-- article:image-slot name="hero" -->
-<!-- <img alt="Shrinky TUI screenshot" src="docs/images/hero/image.png"> -->
-<img width="1707" height="1031" alt="shrinky-hero2-thumb" src="https://github.com/user-attachments/assets/27dc7a36-a5dd-47d2-b140-6a1dc8fd5638" />
-
+<img width="1600" height="900" alt="Shrinky — hit any size target" src="docs/images/hero/image.png">
 <!-- /article:image-slot -->
 
 I kept running into the same wall, and the wall kept being Discord. The free tier caps uploads at 10 MB, and ten megabytes is nothing for a gameplay clip: a minute of decent-resolution recording sails past that ceiling before you've finished the highlight. So you bounce off the upload, alt-tab to a browser, and start hunting for a converter. Those browser tools are a tax. Either you pay to skip a queue, you pay to strip a watermark, or you let the page push four banner ads while it uploads your file to someone else's server. `ffmpeg` already does everything those converters do, locally, for free, with no telemetry. The catch is the flag-googling, and picking a bitrate that lands close to a target size is its own little algorithm I'd run from memory enough times to be tired of it. So I wrote the thing I kept wanting: Shrinky, a terminal media shrinker that does the size math for you.
@@ -48,7 +46,7 @@ The 1.5% headroom on `usable_bytes` gives the container headers somewhere to liv
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/1/image.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/images/1/image.png">
-  <img alt="Shrinky TUI showing auto-size result: 10.59 MB source converted to 9.85 MB" src="docs/images/1/image.png">
+  <img alt="Shrinky's curses TUI: source media, target size, estimate, and the ffmpeg command preview" src="docs/images/1/image.png">
 </picture>
 <!-- /article:image-slot -->
 
@@ -80,7 +78,7 @@ I already live in a terminal, so a GUI would have been a context switch, the kin
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/2/image.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/images/2/image.png">
-  <img alt="Shrinky TUI converting a video" src="docs/images/2/image.png">
+  <img alt="Shrinky conversion result: 19.71 MB shrunk to 9.38 MB, 52% smaller, under the 10 MB target" src="docs/images/2/image.png">
 </picture>
 <!-- /article:image-slot -->
 
